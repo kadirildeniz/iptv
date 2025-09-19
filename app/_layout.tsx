@@ -20,6 +20,8 @@ export default function RootLayout() {
     <Stack>
       <Stack.Screen name="index" options={{ headerShown: false }} />
       <Stack.Screen name="live-tv" options={{ headerShown: false }} />
+      <Stack.Screen name="movies" options={{ headerShown: false }} />
+      <Stack.Screen name="series" options={{ headerShown: false }} />
       <Stack.Screen name="+not-found" />
       <StatusBar style="auto" />
     </Stack>

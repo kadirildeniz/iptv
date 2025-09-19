@@ -23,11 +23,11 @@ export default function HomeScreen() {
             <TouchableOpacity onPress={() => router.push('/live-tv')}>
               <CardComponent title="Canlı TV" description="3000 Kanal" image={require('@/assets/images/tv.png')} style={[styles.card, {height: Platform.OS === 'web' ? 500 : 300}]} /> 
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => {}}>
+            <TouchableOpacity onPress={() => router.push('/movies')}>
               <CardComponent title="Filmler" description="1000 Film" image={require('@/assets/images/film-rulo.png')} style={[styles.card, {height: Platform.OS === 'web' ? 400 : 200}]} />
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => {}}>
-              <CardComponent title="Diziler" description="1000 Film" image={require('@/assets/images/tv-start.png')} style={[styles.card, {height: Platform.OS === 'web' ? 400 : 200}]} />
+            <TouchableOpacity onPress={() => router.push('/series')}>
+              <CardComponent title="Diziler" description="39842 Dizi" image={require('@/assets/images/tv-start.png')} style={[styles.card, {height: Platform.OS === 'web' ? 400 : 200}]} />
             </TouchableOpacity>
           </View>
         </ScrollView>
