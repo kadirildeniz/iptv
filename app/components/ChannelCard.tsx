@@ -9,6 +9,7 @@ interface ChannelCardProps {
   quality: string[];
   isFavorite: boolean;
   onToggleFavorite: (id: string) => void;
+  onChannelSelect?: (channel: { id: string; name: string; streamUrl?: string }) => void;
 }
 
 const ChannelCard: React.FC<ChannelCardProps> = ({
@@ -19,9 +20,21 @@ const ChannelCard: React.FC<ChannelCardProps> = ({
   quality,
   isFavorite,
   onToggleFavorite,
+  onChannelSelect,
 }) => {
+  const handleCardPress = () => {
+    console.log('📺 ChannelCard tıklandı:', { id, name });
+    if (onChannelSelect) {
+      onChannelSelect({
+        id,
+        name,
+        streamUrl: undefined, // Bu bilgiyi parent'tan alacağız
+      });
+    }
+  };
+
   return (
-    <View style={styles.card}>
+    <TouchableOpacity style={styles.card} onPress={handleCardPress} activeOpacity={0.8}>
       <View style={styles.logoContainer}>
         <Text style={styles.logoText}>{logo}</Text>
       </View>
@@ -49,7 +62,7 @@ const ChannelCard: React.FC<ChannelCardProps> = ({
           ))}
         </View>
       </View>
-    </View>
+    </TouchableOpacity>
   );
 };
 
