@@ -45,7 +45,16 @@
         {
           "microphonePermission": false
         }
-      ]
+      ],
+      [
+        "@morrowdigital/watermelondb-expo-plugin",
+        {
+          "useSQLite": true,
+          "disableJsi": true,
+          "enableHermes": true
+        }
+      ],
+      "expo-sqlite"
     ],
     "experiments": {
       "typedRoutes": false

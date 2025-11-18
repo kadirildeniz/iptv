@@ -1,10 +1,6 @@
 package com.anonymous.iptv
 
-
 import android.app.Application
-import com.nozbe.watermelondb.jsi.WatermelonDBJSIPackage;
-import com.facebook.react.bridge.JSIModulePackage;        
-
 import android.content.res.Configuration
 
 import com.facebook.react.PackageList

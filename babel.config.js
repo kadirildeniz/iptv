@@ -7,6 +7,10 @@ module.exports = function (api) {
       }]
     ],
     plugins: [
+      // 1. WatermelonDB için bu satırı EN ÜSTE ekleyin (Sıralama çok önemli!)
+      ['@babel/plugin-proposal-decorators', { 'legacy': true }],
+      
+      // 2. Reanimated ve diğerleri bunun altında kalmalı
       'react-native-reanimated/plugin',
     ],
   };

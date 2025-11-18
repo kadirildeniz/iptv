@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "start": "expo start --dev-client",
+    "start": "expo start",
     "start:clear": "expo start --clear",
     "android": "expo run:android",
     "ios": "expo run:ios",
@@ -40,7 +40,7 @@
   },
   "devDependencies": {
     "@babel/core": "^7.22.9",
-    "@babel/plugin-proposal-decorators": "^7.22.5",
+    "@babel/plugin-proposal-decorators": "^7.28.0",
     "@types/react": "~19.1.10",
     "typescript": "~5.9.2"
   }

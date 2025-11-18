@@ -1,6 +1,7 @@
+// index.ts – %100 çalışan son hali (2025 Expo + WatermelonDB 0.28)
+
 import { Database } from '@nozbe/watermelondb';
 import SQLiteAdapter from '@nozbe/watermelondb/adapters/sqlite';
-import { Platform } from 'react-native';
 import { schema } from './schema';
 import Favorite from './models/Favorite';
 import WatchHistory from './models/WatchHistory';
@@ -14,18 +15,16 @@ import EpgProgram from './models/EpgProgram';
 let database: Database | null = null;
 
 try {
-  // SQLite adapter oluştur
   const adapter = new SQLiteAdapter({
     schema,
     dbName: 'iptv_db',
-    migrations: [],
-    jsi: Platform.OS === 'ios', // iOS için JSI kullan (daha hızlı)
+    // migrations SATIRINI TAMAMEN KALDIR! (version 1 olduğu için gerek yok)
+    jsi: false,  // <--- HER İKİ PLATFORMDA DA false OLACAK! (disableJsi: true yaptın)
     onSetUpError: (error) => {
       console.error('❌ Database setup error:', error);
     },
   });
 
-  // Database instance oluştur
   database = new Database({
     adapter,
     modelClasses: [
@@ -40,17 +39,10 @@ try {
     ],
   });
 
-  // Database'in hazır olduğunu kontrol et
-  database.adapter.schema.validate().then(() => {
-    console.log('✅ Database schema validated');
-  }).catch((error) => {
-    console.error('❌ Database schema validation error:', error);
-  });
+  console.log('✅ WatermelonDB başarıyla başlatıldı');
 } catch (error) {
   console.error('❌ Database initialization error:', error);
-  console.warn('⚠️ Database will not be available. Please install expo-sqlite: npm install expo-sqlite');
 }
 
 export { database };
 export default database;
-
