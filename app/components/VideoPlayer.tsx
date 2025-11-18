@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Image, Platform, Alert } from 'react-native';
+import { fonts } from '@/theme/fonts';
 import { Video, ResizeMode } from 'expo-av';
 
 interface VideoPlayerProps {
@@ -13,6 +14,7 @@ interface VideoPlayerProps {
     startTime: string;
     endTime: string;
   }[];
+  variant?: 'default' | 'fullscreen';
 }
 
 const VideoPlayer: React.FC<VideoPlayerProps> = ({
@@ -21,10 +23,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   channelType,
   streamUrl,
   epgData,
+  variant = 'default',
 }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const videoRef = useRef<Video>(null);
+  const isFullscreen = variant === 'fullscreen';
 
   console.log('🎬 VideoPlayer Props:', {
     channelName,
@@ -210,20 +214,26 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   };
 
   return (
-    <View style={styles.container}>
-      {/* Voice Search */}
-      <View style={styles.voiceSearchContainer}>
-        <TouchableOpacity style={styles.microphoneButton}>
-          <Text style={styles.microphoneIcon}>🎤</Text>
-        </TouchableOpacity>
-        <Text style={styles.voiceSearchText}>
-          Filmler ve diziler arasında ses ile arama yapın
-        </Text>
-      </View>
+    <View
+      style={[
+        styles.container,
+        isFullscreen && styles.fullscreenContainer,
+      ]}
+    >
+      {!isFullscreen && (
+        <View style={styles.voiceSearchContainer}>
+          <TouchableOpacity style={styles.microphoneButton}>
+            <Text style={styles.microphoneIcon}>🎤</Text>
+          </TouchableOpacity>
+          <Text style={styles.voiceSearchText}>
+            Filmler ve diziler arasında ses ile arama yapın
+          </Text>
+        </View>
+      )}
 
       {/* Video Player */}
-      <View style={styles.videoContainer}>
-        <View style={styles.videoFrame}>
+      <View style={[styles.videoContainer, isFullscreen && styles.fullscreenVideoContainer]}>
+        <View style={[styles.videoFrame, isFullscreen && styles.fullscreenVideoFrame]}>
           {streamUrl ? (
             <>
               {Platform.OS === 'web' ? (
@@ -249,7 +259,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               ) : (
                 <Video
                   ref={videoRef}
-                  style={styles.video}
+                  style={[styles.video, isFullscreen && styles.fullscreenVideo]}
                   source={{ 
                     uri: streamUrl,
                     headers: {
@@ -290,11 +300,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 </View>
               )}
               
-              {/* Stream Info Overlay */}
-              <View style={styles.streamInfoOverlay}>
-                <Text style={styles.streamText}>📺 Canlı Yayın</Text>
-                <Text style={styles.streamUrl}>{streamUrl}</Text>
-              </View>
+              {!isFullscreen && (
+                <View style={styles.streamInfoOverlay}>
+                  <Text style={styles.streamText}>📺 Canlı Yayın</Text>
+                  <Text style={styles.streamUrl}>{streamUrl}</Text>
+                </View>
+              )}
             </>
           ) : (
             <View style={styles.placeholderContainer}>
@@ -304,7 +315,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           )}
           
           {/* Video Controls */}
-          <View style={styles.controlsOverlay}>
+          <View style={[styles.controlsOverlay, isFullscreen && styles.fullscreenControlsOverlay]}>
             <View style={styles.topControls}>
               <TouchableOpacity style={styles.controlButton}>
                 <Text style={styles.controlIcon}>🔀</Text>
@@ -344,35 +355,35 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           </View>
         </View>
         
-        <Text style={styles.channelName}>{channelName}</Text>
+        <Text style={[styles.channelName, isFullscreen && styles.fullscreenChannelName]}>{channelName}</Text>
       </View>
 
-      {/* Channel Description */}
-      <View style={styles.descriptionContainer}>
-        <Text style={styles.descriptionTitle}>CANLI TV</Text>
-        <Text style={styles.descriptionSubtitle}>{channelType}</Text>
-        <Text style={styles.descriptionText}>
-          {channelDescription}
-        </Text>
-        
-        {/* EPG Data */}
-        {epgData && epgData.length > 0 && (
-          <View style={styles.epgContainer}>
-            <Text style={styles.epgTitle}>📺 Şu An Yayında</Text>
-            {epgData.slice(0, 3).map((program, index) => (
-              <View key={index} style={styles.epgItem}>
-                <Text style={styles.epgProgram}>{program.title}</Text>
-                <Text style={styles.epgTime}>
-                  {program.startTime} - {program.endTime}
-                </Text>
-                {program.description && (
-                  <Text style={styles.epgDescription}>{program.description}</Text>
-                )}
-              </View>
-            ))}
-          </View>
-        )}
-      </View>
+      {!isFullscreen && (
+        <View style={styles.descriptionContainer}>
+          <Text style={styles.descriptionTitle}>CANLI TV</Text>
+          <Text style={styles.descriptionSubtitle}>{channelType}</Text>
+          <Text style={styles.descriptionText}>
+            {channelDescription}
+          </Text>
+          
+          {epgData && epgData.length > 0 && (
+            <View style={styles.epgContainer}>
+              <Text style={styles.epgTitle}>📺 Şu An Yayında</Text>
+              {epgData.slice(0, 3).map((program, index) => (
+                <View key={index} style={styles.epgItem}>
+                  <Text style={styles.epgProgram}>{program.title}</Text>
+                  <Text style={styles.epgTime}>
+                    {program.startTime} - {program.endTime}
+                  </Text>
+                  {program.description && (
+                    <Text style={styles.epgDescription}>{program.description}</Text>
+                  )}
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
+      )}
     </View>
   );
 };
@@ -390,6 +401,15 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 16,
     elevation: 12,
+  },
+  fullscreenContainer: {
+    flex: 1,
+    backgroundColor: '#000',
+    borderRadius: 0,
+    borderWidth: 0,
+    padding: 0,
+    shadowOpacity: 0,
+    elevation: 0,
   },
   voiceSearchContainer: {
     flexDirection: 'row',
@@ -415,10 +435,14 @@ const styles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.8)',
     fontSize: 14,
     flex: 1,
-    fontFamily: Platform.OS === 'web' ? 'Inter, sans-serif' : 'System',
+    fontFamily: fonts.regular,
   },
   videoContainer: {
     marginBottom: 24,
+  },
+  fullscreenVideoContainer: {
+    flex: 1,
+    marginBottom: 0,
   },
   videoFrame: {
     width: '100%',
@@ -429,6 +453,12 @@ const styles = StyleSheet.create({
     position: 'relative',
     borderWidth: 1,
     borderColor: 'rgba(30, 144, 255, 0.3)',
+  },
+  fullscreenVideoFrame: {
+    flex: 1,
+    height: undefined,
+    borderRadius: 0,
+    borderWidth: 0,
   },
   videoImage: {
     width: '100%',
@@ -442,6 +472,9 @@ const styles = StyleSheet.create({
     bottom: 0,
     justifyContent: 'space-between',
     padding: 20,
+  },
+  fullscreenControlsOverlay: {
+    padding: 24,
   },
   topControls: {
     flexDirection: 'row',
@@ -508,7 +541,7 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 14,
     fontWeight: '500',
-    fontFamily: Platform.OS === 'web' ? 'Inter, sans-serif' : 'System',
+    fontFamily: fonts.medium,
   },
   channelName: {
     color: '#ffffff',
@@ -516,7 +549,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: 20,
     textAlign: 'center',
-    fontFamily: Platform.OS === 'web' ? 'Inter, sans-serif' : 'System',
+    fontFamily: fonts.semibold,
+  },
+  fullscreenChannelName: {
+    marginTop: 12,
+    fontSize: 18,
   },
   descriptionContainer: {
     backgroundColor: 'rgba(30, 144, 255, 0.1)',
@@ -530,20 +567,20 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '700',
     marginBottom: 8,
-    fontFamily: Platform.OS === 'web' ? 'Inter, sans-serif' : 'System',
+    fontFamily: fonts.bold,
   },
   descriptionSubtitle: {
     color: '#1e90ff',
     fontSize: 16,
     fontWeight: '600',
     marginBottom: 16,
-    fontFamily: Platform.OS === 'web' ? 'Inter, sans-serif' : 'System',
+    fontFamily: fonts.semibold,
   },
   descriptionText: {
     color: 'rgba(255, 255, 255, 0.8)',
     fontSize: 15,
     lineHeight: 22,
-    fontFamily: Platform.OS === 'web' ? 'Inter, sans-serif' : 'System',
+    fontFamily: fonts.regular,
   },
   streamContainer: {
     flex: 1,
@@ -557,20 +594,20 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: '700',
     marginBottom: 12,
-    fontFamily: Platform.OS === 'web' ? 'Inter, sans-serif' : 'System',
+    fontFamily: fonts.bold,
   },
   streamUrl: {
     color: '#ffffff',
     fontSize: 12,
     textAlign: 'center',
     marginBottom: 8,
-    fontFamily: Platform.OS === 'web' ? 'Inter, sans-serif' : 'System',
+    fontFamily: fonts.regular,
   },
   streamHint: {
     color: 'rgba(255, 255, 255, 0.7)',
     fontSize: 14,
     textAlign: 'center',
-    fontFamily: Platform.OS === 'web' ? 'Inter, sans-serif' : 'System',
+    fontFamily: fonts.regular,
   },
   epgContainer: {
     marginTop: 20,
@@ -583,7 +620,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     marginBottom: 12,
-    fontFamily: Platform.OS === 'web' ? 'Inter, sans-serif' : 'System',
+    fontFamily: fonts.semibold,
   },
   epgItem: {
     marginBottom: 12,
@@ -596,19 +633,19 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     marginBottom: 4,
-    fontFamily: Platform.OS === 'web' ? 'Inter, sans-serif' : 'System',
+    fontFamily: fonts.semibold,
   },
   epgTime: {
     color: '#1e90ff',
     fontSize: 12,
     marginBottom: 4,
-    fontFamily: Platform.OS === 'web' ? 'Inter, sans-serif' : 'System',
+    fontFamily: fonts.regular,
   },
   epgDescription: {
     color: 'rgba(255, 255, 255, 0.7)',
     fontSize: 12,
     lineHeight: 16,
-    fontFamily: Platform.OS === 'web' ? 'Inter, sans-serif' : 'System',
+    fontFamily: fonts.regular,
   },
   debugContainer: {
     backgroundColor: 'rgba(0, 255, 0, 0.2)',
@@ -622,11 +659,14 @@ const styles = StyleSheet.create({
     color: 'green',
     fontSize: 12,
     fontWeight: '600',
-    fontFamily: Platform.OS === 'web' ? 'Inter, sans-serif' : 'System',
+    fontFamily: fonts.semibold,
   },
   video: {
     width: '100%',
     height: '100%',
+  },
+  fullscreenVideo: {
+    flex: 1,
   },
   loadingOverlay: {
     position: 'absolute',
@@ -642,7 +682,7 @@ const styles = StyleSheet.create({
     color: '#1e90ff',
     fontSize: 18,
     fontWeight: '600',
-    fontFamily: Platform.OS === 'web' ? 'Inter, sans-serif' : 'System',
+    fontFamily: fonts.semibold,
   },
   streamInfoOverlay: {
     position: 'absolute',
@@ -668,14 +708,15 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: '700',
     marginBottom: 12,
-    fontFamily: Platform.OS === 'web' ? 'Inter, sans-serif' : 'System',
+    fontFamily: fonts.bold,
   },
   placeholderSubtext: {
     color: 'rgba(255, 255, 255, 0.7)',
     fontSize: 16,
     textAlign: 'center',
-    fontFamily: Platform.OS === 'web' ? 'Inter, sans-serif' : 'System',
+    fontFamily: fonts.regular,
   },
 });
 
 export default VideoPlayer;
+

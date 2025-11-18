@@ -1,5 +1,6 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Platform } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, Pressable, TouchableOpacity, StyleSheet, Platform, ViewStyle, StyleProp, FlatList } from 'react-native';
+import { fonts } from '@/theme/fonts';
 
 interface Category {
   id: string;
@@ -12,6 +13,10 @@ interface CategoryListProps {
   onCategorySelect: (categoryId: string) => void;
   isMobileMenuOpen?: boolean;
   onToggleMobileMenu?: () => void;
+  layoutMode?: 'sidebar' | 'chips';
+  containerStyle?: StyleProp<ViewStyle>;
+  title?: string;
+  subtitle?: string;
 }
 
 const CategoryList: React.FC<CategoryListProps> = ({
@@ -20,81 +25,125 @@ const CategoryList: React.FC<CategoryListProps> = ({
   onCategorySelect,
   isMobileMenuOpen = false,
   onToggleMobileMenu,
+  layoutMode,
+  containerStyle,
+  title = 'KATEGORİLER',
+  subtitle,
 }) => {
   const isMobile = Platform.OS !== 'web';
+  const mode: 'sidebar' | 'chips' = layoutMode || (isMobile ? 'chips' : 'sidebar');
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
 
-  if (isMobile && !isMobileMenuOpen) {
+  const containerStyles = [
+    styles.container,
+    mode === 'chips' && styles.chipsContainer,
+    mode === 'sidebar' && isMobile && styles.sidebarMobile,
+    containerStyle,
+  ];
+
+  const renderSidebarItem = ({ item }: { item: Category }) => {
+    const isSelected = selectedCategory === item.id;
+    const isHovered = hoveredId === item.id;
     return (
-      <TouchableOpacity style={styles.mobileMenuButton} onPress={onToggleMobileMenu}>
-        <View style={styles.hamburger}>
-          <View style={styles.hamburgerLine} />
-          <View style={styles.hamburgerLine} />
-          <View style={styles.hamburgerLine} />
-        </View>
+      <Pressable
+        style={[
+          styles.categoryItem,
+          (isSelected || isHovered) && styles.categoryItemActive,
+        ]}
+        onPress={() => onCategorySelect(item.id)}
+        onHoverIn={() => setHoveredId(item.id)}
+        onHoverOut={() => setHoveredId(null)}
+        android_ripple={{ color: 'rgba(0, 51, 171, 0.25)', borderless: false }}
+      >
+        <Text
+          style={[
+            styles.categoryText,
+            (isSelected || isHovered) && styles.categoryTextActive,
+          ]}
+        >
+          {item.name}
+        </Text>
+      </Pressable>
+    );
+  };
+
+  const renderChipItem = ({ item }: { item: Category }) => {
+    const isSelected = selectedCategory === item.id;
+    return (
+      <TouchableOpacity
+        style={[
+          styles.chip,
+          isSelected && styles.chipSelected,
+        ]}
+        onPress={() => onCategorySelect(item.id)}
+      >
+        <Text
+          style={[
+            styles.chipText,
+            isSelected && styles.chipTextSelected,
+          ]}
+        >
+          {item.name}
+        </Text>
       </TouchableOpacity>
     );
-  }
+  };
 
   return (
-    <View style={[styles.container, isMobile && styles.mobileContainer]}>
-      <Text style={styles.title}>CANLI TV</Text>
-      <Text style={styles.subtitle}>KATEGORİLER</Text>
-      
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        {categories.map((category) => (
-          <TouchableOpacity
-            key={category.id}
-            style={[
-              styles.categoryItem,
-              selectedCategory === category.id && styles.selectedCategory,
-            ]}
-            onPress={() => {
-              onCategorySelect(category.id);
-              if (isMobile) {
-                onToggleMobileMenu?.();
-              }
-            }}
-          >
-            <Text
-              style={[
-                styles.categoryText,
-                selectedCategory === category.id && styles.selectedCategoryText,
-              ]}
-            >
-              {category.name}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
+    <View style={containerStyles}>
+      {title ? <Text style={styles.title}>{title}</Text> : null}
+      {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
+
+      {mode === 'chips' ? (
+        <FlatList
+          data={categories}
+          renderItem={renderChipItem}
+          keyExtractor={(item) => item.id}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.mobileChipsRow}
+          ListEmptyComponent={() => (
+            <Text style={styles.emptyText}>Kategori bulunamadı</Text>
+          )}
+        />
+      ) : (
+        <FlatList
+          data={categories}
+          renderItem={renderSidebarItem}
+          keyExtractor={(item) => item.id}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scrollViewContent}
+          style={styles.scrollView}
+          ItemSeparatorComponent={() => <View style={styles.sidebarSeparator} />}
+          ListEmptyComponent={() => (
+            <Text style={styles.emptyText}>Kategori bulunamadı</Text>
+          )}
+        />
+      )}
     </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
-    width: 250,
-    backgroundColor: 'rgba(13, 27, 42, 0.8)',
-    padding: 24,
-    borderRadius: 20,
-    marginRight: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(30, 144, 255, 0.2)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 12,
+    backgroundColor: 'transparent',
+    padding: 1,
+    borderRadius: 16,
+    borderWidth: 0,
+    flex: 1,
+    flexShrink: 0,
+    minWidth: 100,
+    alignSelf: 'stretch',
+    gap: 4,
   },
-  mobileContainer: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 1000,
+  chipsContainer: {
+    width: '100%',
     marginRight: 0,
-    borderRadius: 0,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    borderRadius: 16,
+  },
+  sidebarMobile: {
+    width: '100%',
+    marginRight: 0,
   },
   mobileMenuButton: {
     position: 'absolute',
@@ -122,42 +171,85 @@ const styles = StyleSheet.create({
     borderRadius: 1,
   },
   title: {
-    color: '#ffffff',
-    fontSize: 24,
-    fontWeight: '700',
-    marginBottom: 8,
-    fontFamily: Platform.OS === 'web' ? 'Inter, sans-serif' : 'System',
+    color: '#f87171',
+    fontSize: 12,
+    fontFamily: fonts.bold,
+    letterSpacing: 0.4,
+    textAlign: 'center',
+    textTransform: 'uppercase',
   },
   subtitle: {
-    color: 'rgba(255, 255, 255, 0.8)',
-    fontSize: 16,
-    fontWeight: '500',
-    marginBottom: 24,
-    fontFamily: Platform.OS === 'web' ? 'Inter, sans-serif' : 'System',
+    color: '#f87171',
+    fontSize: 11,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    fontFamily: fonts.bold,
+    textAlign: 'center',
+  },
+  mobileChipsRow: {
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    gap: 8,
+  },
+  chip: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 18,
+    backgroundColor: 'rgba(13, 27, 42, 0.6)',
+    borderWidth: 1,
+    borderColor: 'rgba(30, 144, 255, 0.3)',
+    marginRight: 8,
+  },
+  chipSelected: {
+    backgroundColor: 'rgba(30, 144, 255, 0.2)',
+    borderColor: 'rgba(30, 144, 255, 0.6)',
+  },
+  chipText: {
+    color: '#e5e7eb',
+    fontSize: 13,
+    fontFamily: fonts.semibold,
+  },
+  chipTextSelected: {
+    color: '#93c5fd',
+    fontFamily: fonts.bold,
   },
   scrollView: {
     flex: 1,
   },
-  categoryItem: {
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    borderRadius: 16,
-    marginBottom: 8,
+  scrollViewContent: {
+    paddingBottom: 16,
+    gap: 4,
   },
-  selectedCategory: {
-    backgroundColor: 'rgba(30, 144, 255, 0.2)',
+  sidebarSeparator: {
+    height: 6,
+  },
+  categoryItem: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: 'rgba(30, 144, 255, 0.4)',
+    borderColor: 'transparent',
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+  },
+  categoryItemActive: {
+    backgroundColor: '#0033ab',
+    borderColor: '#0033ab',
   },
   categoryText: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '500',
-    fontFamily: Platform.OS === 'web' ? 'Inter, sans-serif' : 'System',
+    color: '#f1f5f9',
+    fontSize: 12.5,
+    letterSpacing: 0.15,
+    fontFamily: fonts.medium,
   },
-  selectedCategoryText: {
-    fontWeight: '600',
-    color: '#1e90ff',
+  categoryTextActive: {
+    color: '#e0f2fe',
+    fontFamily: fonts.semibold,
+  },
+  emptyText: {
+    color: 'rgba(255, 255, 255, 0.5)',
+    fontSize: 16,
+    textAlign: 'center',
+    paddingVertical: 20,
   },
 });
 

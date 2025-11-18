@@ -1,8 +1,11 @@
 module.exports = function (api) {
   api.cache(true);
   return {
-    presets: ['babel-preset-expo'],
-    // Bu 'plugins' dizisi ve içindeki satır zorunludur
+    presets: [
+      ['babel-preset-expo', {
+        jsxImportSource: 'react',
+      }]
+    ],
     plugins: [
       'react-native-reanimated/plugin',
     ],

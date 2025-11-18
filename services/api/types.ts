@@ -279,6 +279,7 @@ export interface Episode {
   added: string;
   season: number;
   direct_source: string;
+  streamUrl?: string;
 }
 
 // ============================================

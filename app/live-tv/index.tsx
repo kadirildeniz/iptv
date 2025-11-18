@@ -1,12 +1,17 @@
-import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, SafeAreaView, ScrollView, Platform, Text, ActivityIndicator, TouchableOpacity } from 'react-native';
-import { useRouter } from 'expo-router';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
+import { View, StyleSheet, SafeAreaView, Platform, Text, ActivityIndicator, TouchableOpacity, useWindowDimensions, TextInput, FlatList } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { Stack, useRouter, Redirect } from 'expo-router';
+import { fonts } from '@/theme/fonts';
 import CategoryList from '@/app/components/CategoryList';
 import ChannelCard from '@/app/components/ChannelCard';
 import VideoPlayer from '@/app/components/VideoPlayer';
 import channelService from '@/services/channel.service';
-import storageService from '@/services/storage.service';
+import { databaseService, storageService, syncService, database } from '@/services';
+import apiClient from '@/services/api/client';
 import type { LiveCategory, Channel as ApiChannel } from '@/services';
+import ChannelModel from '@/services/database/models/Channel';
 
 interface Channel {
   id: string;
@@ -26,6 +31,7 @@ interface Category {
 
 const LiveTv: React.FC = () => {
   const router = useRouter();
+  const { width } = useWindowDimensions();
   const [categories, setCategories] = useState<Category[]>([]);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [selectedCategory, setSelectedCategory] = useState('');
@@ -39,11 +45,21 @@ const LiveTv: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(true);
+  const [isVideoFullScreen, setIsVideoFullScreen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [shouldRedirect, setShouldRedirect] = useState(false);
 
   // API'den kategorileri çek
   useEffect(() => {
     checkAuthentication();
   }, []);
+
+  // Sayfa her açıldığında credentials kontrolü yap
+  useFocusEffect(
+    useCallback(() => {
+      checkAuthentication();
+    }, [])
+  );
 
   const checkAuthentication = async () => {
     try {
@@ -52,13 +68,21 @@ const LiveTv: React.FC = () => {
       
       if (credentials) {
         console.log('✅ User is authenticated');
+        // API client'a credentials'ı yükle
+        await apiClient.loadCredentials();
         setIsAuthenticated(true);
         loadCategories();
         loadFavorites();
+        
+        // Arka planda sync tetikle (UI'ı bloke etmeden)
+        syncService.checkAndRunSync('channels').catch(err => {
+          console.error('Background sync error:', err);
+        });
       } else {
         console.log('❌ User not authenticated');
         setIsAuthenticated(false);
-        setError('Lütfen önce giriş yapın');
+        setShouldRedirect(true);
+        setCheckingAuth(false);
       }
     } catch (error) {
       console.error('❌ Auth check error:', error);
@@ -81,6 +105,21 @@ const LiveTv: React.FC = () => {
       setLoading(true);
       setError(null);
 
+      // Önce AsyncStorage'dan kategorileri kontrol et
+      const cachedCategories = await storageService.getItem<Category[]>('LIVE_TV_CATEGORIES');
+      
+      if (cachedCategories && cachedCategories.length > 0) {
+        const categoriesWithSpecial: Category[] = [
+          { id: 'all', name: '📺 TÜM' },
+          { id: 'favorites', name: '⭐ FAVORİLERİM' },
+          ...cachedCategories,
+        ];
+        setCategories(categoriesWithSpecial);
+        setLoading(false);
+        return;
+      }
+
+      // Eğer cache'de yoksa, API'den çek (sadece ilk kez)
       const apiCategories = await channelService.getCategories();
       
       // API'den gelen kategorileri component formatına dönüştür
@@ -88,6 +127,9 @@ const LiveTv: React.FC = () => {
         id: cat.category_id,
         name: cat.category_name,
       }));
+
+      // AsyncStorage'a kaydet
+      await storageService.setItem('LIVE_TV_CATEGORIES', formattedCategories);
 
       // En başa özel kategoriler ekle
       const categoriesWithSpecial: Category[] = [
@@ -114,35 +156,77 @@ const LiveTv: React.FC = () => {
       
       let apiChannels: ApiChannel[] = [];
 
-      if (categoryId === 'all') {
-        // Tüm kanalları getir (category_id olmadan)
-        apiChannels = await channelService.getChannels();
-      } else if (categoryId === 'favorites') {
-        // Favori kanalları getir
-        const favoriteIds = Array.from(favorites);
-        if (favoriteIds.length > 0) {
-          const allChannels = await channelService.getChannels();
-          apiChannels = allChannels.filter(ch => favoriteIds.includes(ch.stream_id.toString()));
+      // SWR Stratejisi: Önce database'den çek (stale data)
+      if (database) {
+        try {
+          const dbChannels = await database
+            .get<ChannelModel>('channels')
+            .query()
+            .fetch();
+
+          // Database'den gelen veriyi API formatına çevir
+          const dbChannelsFormatted: ApiChannel[] = dbChannels.map((c, index) => ({
+            num: index + 1,
+            stream_id: c.streamId,
+            name: c.name,
+            stream_type: c.streamType,
+            stream_icon: c.streamIcon || '',
+            epg_channel_id: c.epgChannelId || '',
+            category_id: c.categoryId,
+            category_ids: c.categoryIds ? JSON.parse(c.categoryIds) : [],
+            added: c.added || '',
+            custom_sid: c.customSid || '',
+            tv_archive: c.tvArchive || 0,
+            direct_source: c.directSource || '',
+            tv_archive_duration: c.tvArchiveDuration || 0,
+            thumbnail: c.thumbnail || '',
+            streamUrl: undefined,
+          }));
+
+          // Kategoriye göre filtrele
+          if (categoryId === 'all') {
+            apiChannels = dbChannelsFormatted;
+          } else if (categoryId === 'favorites') {
+            const favoriteIds = Array.from(favorites);
+            apiChannels = dbChannelsFormatted.filter(ch => 
+              favoriteIds.includes(ch.stream_id.toString())
+            );
+          } else {
+            apiChannels = dbChannelsFormatted.filter(ch =>
+              ch.category_id === categoryId || 
+              (ch.category_ids && ch.category_ids.includes(parseInt(categoryId)))
+            );
+          }
+
+          // Veriyi hemen göster (sadece database'den)
+          const formattedChannels: Channel[] = apiChannels.map((ch: ApiChannel) => ({
+            id: ch.stream_id.toString(),
+            name: ch.name,
+            logo: ch.stream_icon || ch.name.substring(0, 3).toUpperCase(),
+            subscribers: `ID: ${ch.stream_id}`,
+            quality: ch.tv_archive ? ['HD', 'Arşiv'] : ['HD'],
+            description: `${ch.name} - Canlı yayın`,
+            type: categories.find(cat => cat.id === ch.category_id)?.name || 'Canlı TV',
+            streamUrl: ch.streamUrl,
+          }));
+          setChannels(formattedChannels);
+          console.log(`✅ ${formattedChannels.length} kanal yüklendi (Kategori: ${categoryId})`);
+        } catch (dbError) {
+          console.warn('Database read error:', dbError);
+          setChannels([]);
         }
       } else {
-        // Belirli kategorideki kanalları getir
-        apiChannels = await channelService.getChannelsByCategory(categoryId);
+        // Database yoksa boş liste göster
+        setChannels([]);
       }
 
-      // API'den gelen kanalları component formatına dönüştür
-      const formattedChannels: Channel[] = apiChannels.map((ch: ApiChannel) => ({
-        id: ch.stream_id.toString(),
-        name: ch.name,
-        logo: ch.stream_icon || ch.name.substring(0, 3).toUpperCase(),
-        subscribers: `ID: ${ch.stream_id}`,
-        quality: ch.tv_archive ? ['HD', 'Arşiv'] : ['HD'],
-        description: `${ch.name} - Canlı yayın`,
-        type: categories.find(cat => cat.id === ch.category_id)?.name || 'Canlı TV',
-        streamUrl: ch.streamUrl,
-      }));
-
-      setChannels(formattedChannels);
-      console.log(`✅ ${formattedChannels.length} kanal yüklendi (Kategori: ${categoryId})`);
+      // Arka planda sync tetikle (UI'ı bloke etmeden) - sadece "all" kategorisinde
+      // SyncService zaten zaman damgası kontrolü yapıyor, gereksiz istek atmıyor
+      if (categoryId === 'all') {
+        syncService.checkAndRunSync('channels').catch(err => {
+          console.error('Background sync error:', err);
+        });
+      }
     } catch (err) {
       console.error('Kanallar yüklenemedi:', err);
       setChannels([]);
@@ -153,7 +237,7 @@ const LiveTv: React.FC = () => {
 
   const loadFavorites = async () => {
     try {
-      const storedFavorites = await storageService.getFavorites();
+      const storedFavorites = await databaseService.getFavorites();
       const favoriteIds = storedFavorites
         .filter(fav => fav.type === 'channel')
         .map(fav => fav.id);
@@ -177,6 +261,7 @@ const LiveTv: React.FC = () => {
     
     if (foundChannel) {
       setSelectedChannel(foundChannel);
+      setIsVideoFullScreen(true);
       console.log('✅ selectedChannel güncellendi:', foundChannel);
       
       // EPG verilerini yükle
@@ -184,6 +269,11 @@ const LiveTv: React.FC = () => {
     } else {
       console.error('❌ Kanal bulunamadı:', channel.id);
     }
+  };
+
+  const handleExitFullScreen = () => {
+    setIsVideoFullScreen(false);
+    setSelectedChannel(null);
   };
 
   const loadEPG = async (streamId: string) => {
@@ -220,22 +310,27 @@ const LiveTv: React.FC = () => {
   };
 
   const handleToggleFavorite = async (channelId: string) => {
-    const newFavorites = new Set(favorites);
-    
     try {
-      if (newFavorites.has(channelId)) {
-        // Favorilerden çıkar
-        newFavorites.delete(channelId);
-        await storageService.removeFromFavorites(channelId);
-      } else {
-        // Favorilere ekle
-        newFavorites.add(channelId);
-        await storageService.addToFavorites({
-          id: channelId,
-          type: 'channel',
-        });
-      }
-      setFavorites(newFavorites);
+      const channel = channels.find(c => c.id === channelId);
+      if (!channel) return;
+
+      const next = await databaseService.toggleFavorite({
+        id: channelId,
+        type: 'channel',
+        title: channel.name,
+        poster: channel.logo || '',
+      });
+
+      // Favori listesini güncelle
+      setFavorites((prev) => {
+        const newSet = new Set(prev);
+        if (next) {
+          newSet.add(channelId);
+        } else {
+          newSet.delete(channelId);
+        }
+        return newSet;
+      });
       
       // Eğer favoriler kategorisindeyse kanalları yeniden yükle
       if (selectedCategory === 'favorites') {
@@ -246,7 +341,45 @@ const LiveTv: React.FC = () => {
     }
   };
 
-  // Kimlik doğrulama kontrolü
+  const filteredChannels = useMemo(() => {
+    if (!searchQuery.trim()) {
+      return channels;
+    }
+
+    const query = searchQuery.toLowerCase();
+    return channels.filter((channel) =>
+      channel.name.toLowerCase().includes(query) ||
+      channel.subscribers.toLowerCase().includes(query)
+    );
+  }, [channels, searchQuery]);
+
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchQuery(value);
+  }, []);
+
+  const renderChannelItem = useCallback(({ item }: { item: Channel }) => (
+    <View style={styles.channelGridItem}>
+      <ChannelCard
+        id={item.id}
+        name={item.name}
+        logo={item.logo}
+        subscribers={item.subscribers}
+        quality={item.quality}
+        isFavorite={favorites.has(item.id)}
+        onToggleFavorite={handleToggleFavorite}
+        onChannelSelect={handleChannelSelect}
+        variant="grid"
+      />
+    </View>
+  ), [favorites, handleChannelSelect, handleToggleFavorite]);
+
+  const channelKeyExtractor = useCallback((item: Channel) => item.id, []);
+
+  // Redirect işlemi
+  if (shouldRedirect) {
+    return <Redirect href="/login" />;
+  }
+
   if (checkingAuth) {
     return (
       <SafeAreaView style={styles.container}>
@@ -260,22 +393,7 @@ const LiveTv: React.FC = () => {
 
   // Giriş yapılmamışsa
   if (!isAuthenticated) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.centerContent}>
-          <Text style={styles.errorText}>🔐 Giriş Gerekli</Text>
-          <Text style={styles.errorHint}>
-            Live TV'yi kullanmak için önce giriş yapmanız gerekiyor.
-          </Text>
-          <TouchableOpacity 
-            style={styles.loginButton}
-            onPress={() => router.push('/')}
-          >
-            <Text style={styles.loginButtonText}>Giriş Yap</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
-    );
+    return <Redirect href="/login" />;
   }
 
   // Yükleniyor durumu
@@ -333,63 +451,120 @@ const LiveTv: React.FC = () => {
   console.log('- currentChannel:', currentChannel);
   console.log('- epgData.length:', epgData.length);
 
+  const isWideLayout = width >= 1024;
+  const sidebarWidth = Math.min(Math.max(width * 0.3, 180), 320);
+  const horizontalPadding = isWideLayout ? 32 : 20;
+  const availableWidth = Math.max(width - sidebarWidth - horizontalPadding * 2, 240);
+  const numColumns = Math.max(2, Math.floor(availableWidth / 150));
+
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.content}>
-        {/* Left Panel - Categories */}
-        <CategoryList
-          categories={categories}
-          selectedCategory={selectedCategory}
-          onCategorySelect={handleCategorySelect}
-          isMobileMenuOpen={isMobileMenuOpen}
-          onToggleMobileMenu={handleToggleMobileMenu}
-        />
+      <Stack.Screen options={{ headerShown: false }} />
+      <View
+        style={[
+          styles.content,
+          styles.contentRow,
+        ]}
+      >
+        <View style={[styles.sidebar, { width: sidebarWidth }]}>
+          <View style={styles.backRow}>
+            <TouchableOpacity
+              style={styles.backIconButton}
+              onPress={() => router.back()}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="chevron-back" size={20} color="#94a3b8" />
+            </TouchableOpacity>
+            <Text style={styles.backLinkLabel}>CANLI TV</Text>
+          </View>
+          <Text style={styles.sidebarSubtitle}>KATEGORİLER</Text>
 
-        {/* Middle Panel - Channel Cards */}
-        <ScrollView 
-          style={styles.channelsContainer}
-          contentContainerStyle={styles.channelsContent}
-          showsVerticalScrollIndicator={false}
-        >
+          <CategoryList
+            categories={categories}
+            selectedCategory={selectedCategory}
+            onCategorySelect={handleCategorySelect}
+            isMobileMenuOpen={isMobileMenuOpen}
+            onToggleMobileMenu={handleToggleMobileMenu}
+            layoutMode={'sidebar'}
+            title=""
+            subtitle=""
+          />
+        </View>
+
+        <View style={styles.channelListWrapper}>
+          <View style={styles.topBarWrapper}>
+            <View>
+              <Text style={styles.topBarHeading}>Kanallar</Text>
+              <Text style={styles.topBarSubheading}>{filteredChannels.length} kanal</Text>
+            </View>
+            <View style={styles.searchContainer}>
+              <Ionicons name="search" size={18} color="#dbeafe" />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Kanallarda ara..."
+                placeholderTextColor="rgba(219, 234, 254, 0.6)"
+                value={searchQuery}
+                onChangeText={handleSearchChange}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
+          </View>
+
           {loadingChannels ? (
             <View style={styles.channelsLoading}>
-              <ActivityIndicator size="large" color="#1e90ff" />
+              <ActivityIndicator size="large" color="#0ea5e9" />
               <Text style={styles.loadingText}>Kanallar yükleniyor...</Text>
             </View>
-          ) : channels.length === 0 ? (
+          ) : filteredChannels.length === 0 ? (
             <View style={styles.channelsLoading}>
               <Text style={styles.noChannelsText}>
-                {selectedCategory === 'favorites' 
-                  ? '⭐ Henüz favori kanal eklemediniz' 
-                  : '📺 Bu kategoride kanal bulunamadı'}
+                {searchQuery
+                  ? `"${searchQuery}" için sonuç bulunamadı`
+                  : selectedCategory === 'favorites'
+                    ? '⭐ Henüz favori kanal eklemediniz'
+                    : '📺 Bu kategoride kanal bulunamadı'}
               </Text>
             </View>
           ) : (
-            channels.map((channel) => (
-              <ChannelCard
-                key={channel.id}
-                id={channel.id}
-                name={channel.name}
-                logo={channel.logo}
-                subscribers={channel.subscribers}
-                quality={channel.quality}
-                isFavorite={favorites.has(channel.id)}
-                onToggleFavorite={handleToggleFavorite}
-                onChannelSelect={handleChannelSelect}
-              />
-            ))
+            <FlatList
+              data={filteredChannels}
+              renderItem={renderChannelItem}
+              keyExtractor={channelKeyExtractor}
+              numColumns={numColumns}
+              columnWrapperStyle={
+                numColumns > 1
+                  ? [styles.channelRow, isWideLayout ? styles.channelRowWide : styles.channelRowCompact]
+                  : undefined
+              }
+              contentContainerStyle={[
+                styles.channelsGrid,
+                isWideLayout ? styles.channelsGridWide : styles.channelsGridCompact,
+              ]}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            />
           )}
-        </ScrollView>
-
-        {/* Right Panel - Video Player */}
-        <VideoPlayer
-          channelName={currentChannel.name}
-          channelDescription={currentChannel.description}
-          channelType={currentChannel.type}
-          streamUrl={currentChannel.streamUrl}
-          epgData={epgData}
-        />
+        </View>
       </View>
+
+      {isVideoFullScreen && (
+        <View style={styles.fullscreenOverlay}>
+          <TouchableOpacity style={styles.backButton} onPress={handleExitFullScreen}>
+            <Text style={styles.backIcon}>←</Text>
+          </TouchableOpacity>
+          <View style={styles.fullscreenPlayerWrapper}>
+            <VideoPlayer
+              channelName={currentChannel.name}
+              channelDescription={currentChannel.description}
+              channelType={currentChannel.type}
+              streamUrl={currentChannel.streamUrl}
+              epgData={epgData}
+              variant="fullscreen"
+            />
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 };
@@ -397,27 +572,129 @@ const LiveTv: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0d1b2a',
-    ...(Platform.OS === 'web' && {
-      background: 'linear-gradient(135deg, #0d1b2a 0%, #1e3a8a 50%, #0d1b2a 100%)',
-    }),
+    backgroundColor: '#0033ab',
   },
   content: {
     flex: 1,
-    flexDirection: Platform.OS === 'web' ? 'row' : 'column',
     padding: Platform.OS === 'web' ? 24 : 16,
     gap: Platform.OS === 'web' ? 24 : 16,
   },
-  channelsContainer: {
-    flex: 1,
-    maxWidth: Platform.OS === 'web' ? 450 : '100%',
-    ...(Platform.OS === 'web' && {
-      minWidth: 400,
-    }),
+  contentRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
   },
-  channelsContent: {
-    paddingBottom: 20,
-    paddingTop: Platform.OS === 'web' ? 0 : 20,
+  sidebar: {
+    marginRight: 12,
+    backgroundColor: '#0b1120',
+    borderRadius: 18,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(15, 23, 42, 0.7)',
+    shadowColor: '#020617',
+    shadowOpacity: 0.35,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+  },
+  backRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    alignSelf: 'stretch',
+    marginBottom: 12,
+  },
+  backIconButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(30, 41, 59, 0.6)',
+  },
+  backLinkLabel: {
+    color: '#e2e8f0',
+    fontSize: 15,
+    letterSpacing: 0.4,
+    fontFamily: fonts.semibold,
+  },
+  sidebarSubtitle: {
+    color: '#e61919',
+    fontSize: 14,
+    letterSpacing: 0.6,
+    marginBottom: 8,
+    textTransform: 'uppercase',
+    fontFamily: fonts.bold,
+    
+  },
+  channelListWrapper: {
+    flex: 1,
+    backgroundColor: '#0033ab',
+  },
+  topBarWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 18,
+    paddingHorizontal: 4,
+  },
+  topBarHeading: {
+    color: '#f8fafc',
+    fontSize: 18,
+    letterSpacing: 0.6,
+    marginBottom: 2,
+    fontFamily: fonts.bold,
+  },
+  topBarSubheading: {
+    color: 'rgba(226, 232, 240, 0.75)',
+    fontSize: 12,
+    fontFamily: fonts.regular,
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: '#1d4ed8',
+    gap: 6,
+    flex: 1,
+    maxWidth: 420,
+    shadowColor: '#1d4ed8',
+    shadowOpacity: Platform.OS === 'web' ? 0.25 : 0.18,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 5 },
+  },
+  searchInput: {
+    flex: 1,
+    color: '#dbeafe',
+    fontSize: 12,
+    fontFamily: fonts.regular,
+  },
+  channelsGrid: {
+    paddingBottom: 48,
+    paddingHorizontal: 4,
+  },
+  channelsGridWide: {
+    paddingHorizontal: 12,
+  },
+  channelsGridCompact: {
+    paddingHorizontal: 4,
+  },
+  channelRow: {
+    width: '100%',
+    justifyContent: 'flex-start',
+  },
+  channelRowWide: {
+    marginBottom: 12,
+    columnGap: 12,
+  },
+  channelRowCompact: {
+    marginBottom: 12,
+    columnGap: 10,
+  },
+  channelGridItem: {
+    flex: 1,
+    paddingHorizontal: 4,
   },
   centerContent: {
     flex: 1,
@@ -429,21 +706,20 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 18,
     marginTop: 16,
-    fontFamily: Platform.OS === 'web' ? 'Inter, sans-serif' : 'System',
+    fontFamily: fonts.semibold,
   },
   errorText: {
     color: '#ff6b6b',
     fontSize: 18,
-    fontWeight: '600',
     textAlign: 'center',
     marginBottom: 12,
-    fontFamily: Platform.OS === 'web' ? 'Inter, sans-serif' : 'System',
+    fontFamily: fonts.semibold,
   },
   errorHint: {
     color: 'rgba(255, 255, 255, 0.7)',
     fontSize: 14,
     textAlign: 'center',
-    fontFamily: Platform.OS === 'web' ? 'Inter, sans-serif' : 'System',
+    fontFamily: fonts.regular,
   },
   channelsLoading: {
     flex: 1,
@@ -455,10 +731,10 @@ const styles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.7)',
     fontSize: 16,
     textAlign: 'center',
-    fontFamily: Platform.OS === 'web' ? 'Inter, sans-serif' : 'System',
+    fontFamily: fonts.semibold,
   },
   loginButton: {
-    backgroundColor: '#1e90ff',
+    backgroundColor: '#0b1120',
     borderRadius: 12,
     padding: 16,
     alignItems: 'center',
@@ -468,8 +744,33 @@ const styles = StyleSheet.create({
   loginButtonText: {
     color: '#fff',
     fontSize: 16,
+    fontFamily: fonts.semibold,
+  },
+  fullscreenOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#000',
+    justifyContent: 'center',
+  },
+  backButton: {
+    position: 'absolute',
+    top: Platform.OS === 'android' ? 32 : 48,
+    left: 24,
+    zIndex: 2,
+    backgroundColor: 'rgba(13, 27, 42, 0.7)',
+    borderRadius: 24,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  backIcon: {
+    color: '#ffffff',
+    fontSize: 20,
     fontWeight: '600',
-    fontFamily: Platform.OS === 'web' ? 'Inter, sans-serif' : 'System',
+  },
+  fullscreenPlayerWrapper: {
+    flex: 1,
+    paddingTop: Platform.OS === 'android' ? 48 : 64,
   },
 });
 

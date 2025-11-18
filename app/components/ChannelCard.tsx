@@ -1,5 +1,6 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, Image, GestureResponderEvent } from 'react-native';
+import { fonts } from '@/theme/fonts';
 
 interface ChannelCardProps {
   id: string;
@@ -10,6 +11,7 @@ interface ChannelCardProps {
   isFavorite: boolean;
   onToggleFavorite: (id: string) => void;
   onChannelSelect?: (channel: { id: string; name: string; streamUrl?: string }) => void;
+  variant?: 'grid' | 'list';
 }
 
 const ChannelCard: React.FC<ChannelCardProps> = ({
@@ -21,43 +23,99 @@ const ChannelCard: React.FC<ChannelCardProps> = ({
   isFavorite,
   onToggleFavorite,
   onChannelSelect,
+  variant = 'grid',
 }) => {
+  const [imageError, setImageError] = useState(false);
+  const isGrid = variant === 'grid';
+
   const handleCardPress = () => {
-    console.log('📺 ChannelCard tıklandı:', { id, name });
     if (onChannelSelect) {
       onChannelSelect({
         id,
         name,
-        streamUrl: undefined, // Bu bilgiyi parent'tan alacağız
+        streamUrl: undefined,
       });
     }
   };
 
-  return (
-    <TouchableOpacity style={styles.card} onPress={handleCardPress} activeOpacity={0.8}>
-      <View style={styles.logoContainer}>
-        <Text style={styles.logoText}>{logo}</Text>
-      </View>
-      
-      <View style={styles.content}>
-        <View style={styles.header}>
-          <Text style={styles.channelName}>{name}</Text>
-          <TouchableOpacity 
-            style={styles.favoriteButton}
-            onPress={() => onToggleFavorite(id)}
+  const handleFavoritePress = (event: GestureResponderEvent) => {
+    event.stopPropagation();
+    onToggleFavorite(id);
+  };
+
+  const isLogoUrl = logo && (logo.startsWith('http://') || logo.startsWith('https://') || logo.startsWith('//'));
+  const showImage = isLogoUrl && !imageError;
+
+  if (isGrid) {
+    return (
+      <TouchableOpacity style={styles.gridCard} onPress={handleCardPress} activeOpacity={0.9}>
+        <View style={styles.gridImageWrapper}>
+          {showImage ? (
+            <Image
+              source={{ uri: logo }}
+              style={styles.gridImage}
+              resizeMode="cover"
+              onError={() => setImageError(true)}
+            />
+          ) : (
+            <Text style={styles.gridFallback}>{name.substring(0, 3).toUpperCase()}</Text>
+          )}
+
+          <TouchableOpacity
+            style={[styles.gridFavoriteButton, isFavorite && styles.gridFavoriteButtonActive]}
+            onPress={handleFavoritePress}
+            activeOpacity={0.7}
           >
-            <Text style={[styles.star, isFavorite && styles.starFilled]}>
+            <Text style={[styles.gridFavoriteIcon, isFavorite && styles.gridFavoriteIconActive]}>
               {isFavorite ? '★' : '☆'}
             </Text>
           </TouchableOpacity>
         </View>
-        
-        <Text style={styles.subscribers}>{subscribers}</Text>
-        
-        <View style={styles.qualityContainer}>
+
+        <Text style={styles.gridName} numberOfLines={1}>
+          {name}
+        </Text>
+      </TouchableOpacity>
+    );
+  }
+
+  return (
+    <TouchableOpacity style={styles.listCard} onPress={handleCardPress} activeOpacity={0.8}>
+      <View style={styles.listLogoWrapper}>
+        {showImage ? (
+          <Image
+            source={{ uri: logo }}
+            style={styles.listImage}
+            resizeMode="contain"
+            onError={() => setImageError(true)}
+          />
+        ) : (
+          <Text style={styles.listFallback}>{name.substring(0, 3).toUpperCase()}</Text>
+        )}
+      </View>
+
+      <View style={styles.listContent}>
+        <View style={styles.listHeader}>
+          <Text style={styles.listTitle} numberOfLines={1}>
+            {name}
+          </Text>
+          <TouchableOpacity
+            style={styles.listFavoriteButton}
+            onPress={handleFavoritePress}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.listStar, isFavorite && styles.listStarActive]}>
+              {isFavorite ? '★' : '☆'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        <Text style={styles.listSubtitle}>{subscribers}</Text>
+
+        <View style={styles.listBadges}>
           {quality.map((q, index) => (
-            <View key={index} style={styles.qualityBadge}>
-              <Text style={styles.qualityText}>{q}</Text>
+            <View key={index} style={styles.listBadge}>
+              <Text style={styles.listBadgeText}>{q}</Text>
             </View>
           ))}
         </View>
@@ -66,22 +124,95 @@ const ChannelCard: React.FC<ChannelCardProps> = ({
   );
 };
 
+const sharedShadow = {
+  shadowColor: '#000',
+  shadowOffset: { width: 0, height: 6 },
+  shadowOpacity: 0.15,
+  shadowRadius: 12,
+  elevation: 6,
+};
+
 const styles = StyleSheet.create({
-  card: {
+  gridCard: {
+    backgroundColor: 'rgba(13, 27, 42, 0.6)',
+    borderRadius: 18,
+    padding: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(30, 144, 255, 0.18)',
+    gap: 10,
+    ...sharedShadow,
+  },
+  gridImageWrapper: {
+    width: '100%',
+    aspectRatio: 1.15,
+    borderRadius: 14,
+    backgroundColor: 'rgba(15, 46, 91, 0.75)',
+    borderWidth: 1,
+    borderColor: 'rgba(30, 144, 255, 0.28)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  gridImage: {
+    width: '100%',
+    height: '100%',
+  },
+  gridFallback: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontFamily: fonts.bold,
+  },
+  gridFavoriteButton: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(15, 23, 42, 0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.25)',
+    shadowColor: '#0ea5e9',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  gridFavoriteButtonActive: {
+    backgroundColor: '#0ea5e9',
+    borderColor: '#38bdf8',
+    shadowColor: '#38bdf8',
+  },
+  gridFavoriteIcon: {
+    fontSize: 16,
+    color: 'rgba(255, 255, 255, 0.85)',
+    fontFamily: fonts.semibold,
+  },
+  gridFavoriteIconActive: {
+    color: '#0b1120',
+  },
+  gridName: {
+    color: '#f8fafc',
+    fontSize: 13,
+    textAlign: 'center',
+    fontFamily: fonts.semibold,
+  },
+
+  listCard: {
     flexDirection: 'row',
     backgroundColor: 'rgba(13, 27, 42, 0.6)',
     borderRadius: 20,
     padding: 20,
-    marginBottom: 16,
     borderWidth: 1,
     borderColor: 'rgba(30, 144, 255, 0.2)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 12,
+    marginBottom: 16,
+    ...sharedShadow,
   },
-  logoContainer: {
+  listLogoWrapper: {
     width: 64,
     height: 64,
     backgroundColor: 'rgba(30, 144, 255, 0.2)',
@@ -91,64 +222,66 @@ const styles = StyleSheet.create({
     marginRight: 20,
     borderWidth: 1,
     borderColor: 'rgba(30, 144, 255, 0.3)',
+    overflow: 'hidden',
   },
-  logoText: {
+  listImage: {
+    width: '100%',
+    height: '100%',
+  },
+  listFallback: {
     color: '#ffffff',
     fontSize: 12,
-    fontWeight: '700',
     textAlign: 'center',
-    fontFamily: Platform.OS === 'web' ? 'Inter, sans-serif' : 'System',
+    fontFamily: fonts.bold,
   },
-  content: {
+  listContent: {
     flex: 1,
     justifyContent: 'space-between',
   },
-  header: {
+  listHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
   },
-  channelName: {
+  listTitle: {
     color: '#ffffff',
     fontSize: 18,
-    fontWeight: '600',
     flex: 1,
-    fontFamily: Platform.OS === 'web' ? 'Inter, sans-serif' : 'System',
+    fontFamily: fonts.semibold,
   },
-  favoriteButton: {
+  listFavoriteButton: {
     padding: 8,
     borderRadius: 20,
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
   },
-  star: {
+  listStar: {
     fontSize: 20,
     color: 'rgba(255, 255, 255, 0.6)',
   },
-  starFilled: {
+  listStarActive: {
     color: '#1e90ff',
   },
-  subscribers: {
+  listSubtitle: {
     color: 'rgba(255, 255, 255, 0.7)',
     fontSize: 14,
     marginTop: 6,
-    fontFamily: Platform.OS === 'web' ? 'Inter, sans-serif' : 'System',
+    fontFamily: fonts.regular,
   },
-  qualityContainer: {
+  listBadges: {
     flexDirection: 'row',
     marginTop: 12,
   },
-  qualityBadge: {
+  listBadge: {
     backgroundColor: '#1e90ff',
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 4,
     marginRight: 8,
   },
-  qualityText: {
+  listBadgeText: {
     color: '#ffffff',
     fontSize: 12,
-    fontWeight: '600',
-    fontFamily: Platform.OS === 'web' ? 'Inter, sans-serif' : 'System',
+    fontFamily: fonts.semibold,
   },
 });
 
