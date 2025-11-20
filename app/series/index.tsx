@@ -11,14 +11,16 @@ import {
   TextInput,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Stack, useRouter, Redirect } from 'expo-router';
+import { Stack, useRouter, Redirect, useFocusEffect } from 'expo-router';
 import { fonts } from '@/theme/fonts';
 import CategoryList from '@/app/components/CategoryList';
 import SeriesCard from '@/app/components/SeriesCard';
+import SearchHeader from '@/app/components/SearchHeader';
 import { databaseService, storageService, database, type Series as ApiSeries } from '@/services';
 import SeriesModel from '@/services/database/models/Series';
 import SeriesCategoryModel from '@/services/database/models/SeriesCategory';
 import apiClient from '@/services/api/client';
+import { turkishIncludes } from '@/utils/textUtils';
 
 interface UICategory {
   id: string;
@@ -43,11 +45,17 @@ const Series: React.FC = () => {
     initialize();
   }, []);
 
+  useFocusEffect(
+    useCallback(() => {
+      loadFavorites();
+    }, [])
+  );
+
   useEffect(() => {
     if (selectedCategory) {
       loadSeries(selectedCategory);
     }
-  }, [selectedCategory]);
+  }, [selectedCategory]); // favorites dependency removed to prevent full refresh
 
   const initialize = async () => {
     try {
@@ -124,6 +132,7 @@ const Series: React.FC = () => {
 
       const withSpecial: UICategory[] = [
         { id: 'all', name: '📺 TÜM' },
+        { id: 'continue_watching', name: '⏯️ İZLEMEYE DEVAM ET' },
         { id: 'favorites', name: '⭐ FAVORİLERİM' },
         ...filteredCategories,
       ];
@@ -181,8 +190,19 @@ const Series: React.FC = () => {
       let apiSeries: ApiSeries[] = [];
       if (categoryId === 'all') {
         apiSeries = dbSeriesFormatted;
+      } else if (categoryId === 'continue_watching') {
+        const continueWatchingList = await databaseService.getContinueWatching();
+        // Dizi ID'lerini çıkar (format: seriesId_sSeasonNum_eEpisodeNum)
+        const continueSeriesIds = new Set(
+          continueWatchingList
+            .filter((c) => c.type === 'series')
+            .map((c) => c.id.split('_')[0]) // İlk kısmı al (series ID)
+        );
+        apiSeries = dbSeriesFormatted.filter((s) => continueSeriesIds.has(s.series_id.toString()));
       } else if (categoryId === 'favorites') {
-        apiSeries = dbSeriesFormatted.filter((s) => favorites.has(s.series_id.toString()));
+        const favList = await databaseService.getFavorites();
+        const favIds = new Set(favList.filter((f) => f.type === 'series').map((f) => f.id));
+        apiSeries = dbSeriesFormatted.filter((s) => favIds.has(s.series_id.toString()));
       } else {
         apiSeries = dbSeriesFormatted.filter(
           (s) =>
@@ -242,11 +262,12 @@ const Series: React.FC = () => {
           }
           return newSet;
         });
-
+        
+        // Sadece favorilerim sayfasındaysak listeyi yenile
         if (selectedCategory === 'favorites') {
-          loadSeries('favorites');
+            loadSeries('favorites');
         }
-
+        
         console.log(`✅ Favori ${next ? 'eklendi' : 'çıkarıldı'}: ${seriesItem.name}`);
       } catch (err) {
         console.error('Favori güncelleme hatası:', err);
@@ -257,9 +278,9 @@ const Series: React.FC = () => {
 
   const filteredSeries = useMemo(() => {
     let filtered = series;
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      filtered = filtered.filter((s) => s.name.toLowerCase().includes(q));
+    if (searchQuery.trim() && searchQuery.trim().length >= 3) {
+      // Türkçe karakter desteği ile arama
+      filtered = filtered.filter((s) => turkishIncludes(s.name, searchQuery));
     }
     return filtered;
   }, [series, searchQuery]);
@@ -378,24 +399,13 @@ const Series: React.FC = () => {
         </View>
 
         <View style={styles.catalogWrapper}>
-          <View style={styles.topBarWrapper}>
-            <View>
-              <Text style={styles.topBarHeading}>Diziler</Text>
-              <Text style={styles.topBarSubheading}>{filteredSeries.length} içerik</Text>
-            </View>
-            <View style={styles.searchContainer}>
-              <Ionicons name="search" size={18} color="#dbeafe" />
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Dizilerde ara..."
-                placeholderTextColor="rgba(219, 234, 254, 0.6)"
-                value={searchQuery}
-                onChangeText={handleSearch}
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-            </View>
-          </View>
+          <SearchHeader
+            title="Diziler"
+            onSearch={handleSearch}
+            placeholder="Dizilerde ara..."
+            itemCount={filteredSeries.length}
+            itemLabel="içerik"
+          />
 
           {loadingSeries ? (
             <View style={styles.center}>
@@ -497,46 +507,6 @@ const styles = StyleSheet.create({
   catalogWrapper: {
     flex: 1,
     backgroundColor: '#0033ab',
-  },
-  topBarWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 18,
-    paddingHorizontal: 4,
-  },
-  topBarHeading: {
-    color: '#f8fafc',
-    fontSize: 20,
-    letterSpacing: 0.6,
-    marginBottom: 2,
-    fontFamily: fonts.bold,
-  },
-  topBarSubheading: {
-    color: 'rgba(226, 232, 240, 0.75)',
-    fontSize: 12,
-    fontFamily: fonts.regular,
-  },
-  searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 999,
-    backgroundColor: '#1d4ed8',
-    gap: 8,
-    flex: 1,
-    maxWidth: 360,
-    shadowColor: '#1d4ed8',
-    shadowOpacity: Platform.OS === 'web' ? 0.25 : 0.18,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 5 },
-  },
-  searchInput: {
-    flex: 1,
-    color: '#dbeafe',
-    fontSize: 13,
-    fontFamily: fonts.regular,
   },
   seriesGrid: {
     paddingBottom: 48,

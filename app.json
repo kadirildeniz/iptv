@@ -54,7 +54,8 @@
           "enableHermes": true
         }
       ],
-      "expo-sqlite"
+      "expo-sqlite",
+      "react-native-video"
     ],
     "experiments": {
       "typedRoutes": false

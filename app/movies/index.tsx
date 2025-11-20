@@ -11,14 +11,16 @@ import {
   TextInput,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Stack, useRouter, Redirect } from 'expo-router';
+import { Stack, useRouter, Redirect, useFocusEffect } from 'expo-router';
 import CategoryList from '@/app/components/CategoryList';
 import MovieCard from '@/app/components/MovieCard';
+import SearchHeader from '@/app/components/SearchHeader';
 import { databaseService, storageService, database, type Movie as ApiMovie } from '@/services';
 import apiClient from '@/services/api/client';
 import MovieModel from '@/services/database/models/Movie';
 import MovieCategoryModel from '@/services/database/models/MovieCategory';
 import { fonts } from '@/theme/fonts';
+import { turkishIncludes } from '@/utils/textUtils';
 
 interface UICategory {
   id: string;
@@ -42,11 +44,17 @@ const Movies: React.FC = () => {
     initialize();
   }, []);
 
+  useFocusEffect(
+    useCallback(() => {
+      loadFavorites();
+    }, [])
+  );
+
   useEffect(() => {
     if (selectedCategory) {
       loadMovies(selectedCategory);
     }
-  }, [selectedCategory]);
+  }, [selectedCategory]); // favorites dependency removed to prevent full refresh
 
   const initialize = async () => {
     try {
@@ -122,6 +130,7 @@ const Movies: React.FC = () => {
 
       const withSpecial: UICategory[] = [
         { id: 'all', name: '🎬 TÜM' },
+        { id: 'continue_watching', name: '⏯️ İZLEMEYE DEVAM ET' },
         { id: 'favorites', name: '⭐ FAVORİLERİM' },
         ...filteredCategories,
       ];
@@ -156,28 +165,48 @@ const Movies: React.FC = () => {
         return;
       }
 
-      const dbMoviesFormatted: ApiMovie[] = dbMovies.map((m, index) => ({
-        num: index + 1,
-        stream_id: m.streamId,
-        name: m.name,
-        stream_type: m.streamType,
-        stream_icon: m.streamIcon || '',
-        rating: m.rating || '',
-        rating_5based: m.rating5based || 0,
-        category_id: m.categoryId,
-        category_ids: m.categoryIds ? JSON.parse(m.categoryIds) : [],
-        added: m.added || '',
-        container_extension: m.containerExtension || '',
-        custom_sid: m.customSid || '',
-        direct_source: m.directSource || '',
-        streamUrl: undefined,
-      }));
+      const dbMoviesFormatted: ApiMovie[] = dbMovies.map((m, index) => {
+        // İlk birkaç filmin added değerini logla (debug için)
+        if (index < 3) {
+          console.log(`Film: ${m.name}, added: "${m.added}", release_date: "${m.releaseDate}"`);
+        }
+        
+        return {
+          num: index + 1,
+          stream_id: m.streamId,
+          name: m.name,
+          stream_type: m.streamType,
+          stream_icon: m.streamIcon || '',
+          rating: m.rating || '',
+          rating_5based: m.rating5based || 0,
+          category_id: m.categoryId,
+          category_ids: m.categoryIds ? JSON.parse(m.categoryIds) : [],
+          added: m.added || '',
+          container_extension: m.containerExtension || '',
+          custom_sid: m.customSid || '',
+          direct_source: m.directSource || '',
+          streamUrl: undefined,
+          info: {
+            releasedate: m.releaseDate || '',
+            plot: m.plot || '',
+            cast: m.cast || '',
+            director: m.director || '',
+            genre: m.genre || '',
+          } as any,
+        };
+      });
 
       let apiMovies: ApiMovie[] = [];
       if (categoryId === 'all') {
         apiMovies = dbMoviesFormatted;
+      } else if (categoryId === 'continue_watching') {
+        const continueWatchingList = await databaseService.getContinueWatching();
+        const continueIds = new Set(continueWatchingList.filter((c) => c.type === 'movie').map((c) => c.id));
+        apiMovies = dbMoviesFormatted.filter((m) => continueIds.has(m.stream_id.toString()));
       } else if (categoryId === 'favorites') {
-        apiMovies = dbMoviesFormatted.filter((m) => favorites.has(m.stream_id.toString()));
+        const favList = await databaseService.getFavorites();
+        const favIds = new Set(favList.filter((f) => f.type === 'movie').map((f) => f.id));
+        apiMovies = dbMoviesFormatted.filter((m) => favIds.has(m.stream_id.toString()));
       } else {
         apiMovies = dbMoviesFormatted.filter(
           (m) =>
@@ -198,30 +227,32 @@ const Movies: React.FC = () => {
   };
 
   const getMovieYear = (movie: ApiMovie): string => {
-    if (movie.info?.releasedate) {
-      const year = movie.info.releasedate.slice(0, 4);
-      if (year && !isNaN(Number(year))) {
-        return year;
+    // Önce DB'deki release_date'i kontrol et (Gerçek çıkış yılı)
+    if (movie.info?.releasedate && movie.info.releasedate.trim() !== '') {
+      const dateStr = movie.info.releasedate.trim();
+      // Eğer tarih formatında ise (YYYY-MM-DD, YYYY/MM/DD veya sadece YYYY)
+      const yearMatch = dateStr.match(/(\d{4})/);
+      if (yearMatch) {
+        const year = parseInt(yearMatch[1]);
+        // Mantıklı film yılı kontrolü (1900-2030)
+        if (year >= 1900 && year <= 2030) {
+          return year.toString();
+        }
       }
     }
 
-    if (movie.added) {
-      const date = new Date(Number(movie.added) * 1000);
-      const year = date.getFullYear();
-      if (!isNaN(year)) {
-        return year.toString();
-      }
-    }
-
+    // Fallback olarak "added" alanını kullanma çünkü bu "sisteme eklenme tarihi" 
+    // ve çıkış yılıyla alakası yok
+    // Bunun yerine boş dön, film detayına girince lazy load ile gerçek yıl gelecek
     return '';
   };
 
   const filteredMovies = useMemo(() => {
     let filtered = movies;
 
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      filtered = filtered.filter((m) => m.name.toLowerCase().includes(q));
+    if (searchQuery.trim() && searchQuery.trim().length >= 3) {
+      // Türkçe karakter desteği ile arama
+      filtered = filtered.filter((m) => turkishIncludes(m.name, searchQuery));
     }
 
     return filtered;
@@ -249,12 +280,51 @@ const Movies: React.FC = () => {
     [router]
   );
 
+  const handleToggleFavorite = useCallback(
+    async (movieId: string) => {
+      try {
+        const movieItem = movies.find((m) => m.stream_id.toString() === movieId);
+        if (!movieItem) return;
+
+        const next = await databaseService.toggleFavorite({
+          id: movieId,
+          type: 'movie',
+          title: movieItem.name,
+          poster: movieItem.stream_icon || '',
+        });
+
+        setFavorites((prev) => {
+          const newSet = new Set(prev);
+          if (next) {
+            newSet.add(movieId);
+          } else {
+            newSet.delete(movieId);
+          }
+          return newSet;
+        });
+        
+        // Sadece favorilerim sayfasındaysak listeyi yenile
+        if (selectedCategory === 'favorites') {
+            loadMovies('favorites');
+        }
+        
+        console.log(`✅ Favori ${next ? 'eklendi' : 'çıkarıldı'}: ${movieItem.name}`);
+      } catch (err) {
+        console.error('Favori güncelleme hatası:', err);
+      }
+    },
+    [movies, selectedCategory]
+  );
+
   const renderMovie = useCallback(
     ({ item }: { item: ApiMovie }) => {
+      const movieId = item.stream_id.toString();
+      const isFavorite = favorites.has(movieId);
+
       return (
         <View style={[styles.movieCardWrapper, { width: `${100 / numColumns}%` }]}>
           <MovieCard
-            id={item.stream_id.toString()}
+            id={movieId}
             title={item.name}
             year={getMovieYear(item)}
             image={
@@ -263,12 +333,14 @@ const Movies: React.FC = () => {
             category={item.category_id}
             rating={item.rating}
             rating_5based={item.rating_5based}
+            isFavorite={isFavorite}
             onPress={handleMoviePress}
+            onFavoritePress={handleToggleFavorite}
           />
         </View>
       );
     },
-    [numColumns, handleMoviePress]
+    [numColumns, handleMoviePress, handleToggleFavorite, favorites]
   );
 
   const keyExtractor = useCallback((item: ApiMovie) => item.stream_id.toString(), []);
@@ -332,24 +404,13 @@ const Movies: React.FC = () => {
         </View>
 
         <View style={styles.catalogWrapper}>
-          <View style={styles.topBarWrapper}>
-            <View>
-              <Text style={styles.topBarHeading}>Filmler</Text>
-              <Text style={styles.topBarSubheading}>{filteredMovies.length} içerik</Text>
-            </View>
-            <View style={styles.searchContainer}>
-              <Ionicons name="search" size={18} color="#dbeafe" />
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Filmlerde ara..."
-                placeholderTextColor="rgba(219, 234, 254, 0.6)"
-                value={searchQuery}
-                onChangeText={handleSearch}
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-            </View>
-          </View>
+          <SearchHeader
+            title="Filmler"
+            onSearch={handleSearch}
+            placeholder="Filmlerde ara..."
+            itemCount={filteredMovies.length}
+            itemLabel="içerik"
+          />
 
           {loadingMovies ? (
             <View style={styles.center}>
@@ -450,46 +511,6 @@ const styles = StyleSheet.create({
   catalogWrapper: {
     flex: 1,
     backgroundColor: '#0033ab',
-  },
-  topBarWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 18,
-    paddingHorizontal: 4,
-  },
-  topBarHeading: {
-    color: '#f8fafc',
-    fontSize: 18,
-    letterSpacing: 0.5,
-    marginBottom: 2,
-    fontFamily: fonts.bold,
-  },
-  topBarSubheading: {
-    color: 'rgba(226, 232, 240, 0.75)',
-    fontSize: 11,
-    fontFamily: fonts.regular,
-  },
-  searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 999,
-    backgroundColor: '#1d4ed8',
-    gap: 8,
-    flex: 1,
-    maxWidth: 360,
-    shadowColor: '#1d4ed8',
-    shadowOpacity: Platform.OS === 'web' ? 0.25 : 0.18,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 5 },
-  },
-  searchInput: {
-    flex: 1,
-    color: '#dbeafe',
-    fontSize: 13,
-    fontFamily: fonts.regular,
   },
   moviesGrid: {
     paddingBottom: 48,

@@ -14,7 +14,6 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import VideoPlayer from '@/app/components/VideoPlayer';
 import { databaseService, database, seriesService, storageService, type Series, type SeriesInfo, type Episode } from '@/services';
 import { fonts } from '@/theme/fonts';
 import SeriesModel from '@/services/database/models/Series';
@@ -88,6 +87,38 @@ const SeriesDetail: React.FC = () => {
                 const episodes = JSON.parse(dbSerie.episodes);
 
                 if (seasons && Array.isArray(seasons) && seasons.length > 0) {
+                  // URL'leri yeniden oluştur (DB'deki veri eski veya protokolsüz olabilir)
+                  const credentials = await storageService.getCredentials();
+                  const baseUrl = await storageService.getItem('baseUrl');
+                  let episodesWithUrls = episodes;
+
+                  if (credentials && baseUrl) {
+                      let fullBaseUrl = baseUrl;
+                      if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
+                          fullBaseUrl = `${credentials.protocol || 'http'}://${baseUrl}`;
+                      }
+                      
+                      console.log('♻️ Rebuilding URLs from DB cache:', { fullBaseUrl });
+
+                      episodesWithUrls = {};
+                      Object.keys(episodes).forEach((seasonKey) => {
+                          episodesWithUrls[seasonKey] = episodes[seasonKey].map((episode: any) => {
+                              const streamUrl = buildSeriesUrl(
+                                  fullBaseUrl,
+                                  credentials.username,
+                                  credentials.password,
+                                  episode.id,
+                                  episode.container_extension || 'mp4'
+                              );
+                              return {
+                                  ...episode,
+                                  streamUrl,
+                                  season_number: episode.season_number || parseInt(seasonKey) || 1,
+                              };
+                          });
+                      });
+                  }
+
                   setSeriesInfo({
                     info: {
                         name: seriesData.name,
@@ -108,12 +139,12 @@ const SeriesDetail: React.FC = () => {
                         tmdb_id: '',
                     },
                     seasons: seasons,
-                    episodes: episodes || {},
+                    episodes: episodesWithUrls || {},
                   });
 
                   setSelectedSeason(seasons[0].season_number);
                   detailsLoaded = true;
-                  console.log('✅ Dizi detayları cache\'den (DB) yüklendi');
+                  console.log('✅ Dizi detayları cache\'den (DB) yüklendi ve URLler güncellendi');
                 }
               } catch (parseError) {
                 console.warn('JSON parse hatası:', parseError);
@@ -152,20 +183,39 @@ const SeriesDetail: React.FC = () => {
                 let episodesWithUrls = apiSeriesInfo.episodes;
 
                 if (credentials && baseUrl) {
-                    const fullBaseUrl = `${credentials.protocol || 'http'}://${baseUrl}`;
+                    // baseUrl zaten protokol içeriyorsa kullan, yoksa ekle
+                    let fullBaseUrl = baseUrl;
+                    if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
+                        fullBaseUrl = `${credentials.protocol || 'http'}://${baseUrl}`;
+                    }
+                    
                     episodesWithUrls = {};
                     
+                    console.log('🔗 Building series URLs:', { 
+                        baseUrl, 
+                        fullBaseUrl, 
+                        protocol: credentials.protocol,
+                        username: credentials.username 
+                    });
+                    
                     Object.keys(apiSeriesInfo.episodes).forEach((seasonKey) => {
-                        episodesWithUrls[seasonKey] = apiSeriesInfo.episodes[seasonKey].map((episode: any) => ({
-                            ...episode,
-                            streamUrl: buildSeriesUrl(
-                                baseUrl,
+                        episodesWithUrls[seasonKey] = apiSeriesInfo.episodes[seasonKey].map((episode: any) => {
+                            const streamUrl = buildSeriesUrl(
+                                fullBaseUrl, // baseUrl yerine fullBaseUrl kullan
                                 credentials.username,
                                 credentials.password,
                                 episode.id,
                                 episode.container_extension || 'mp4'
-                            ),
-                        }));
+                            );
+                            
+                            console.log(`📺 S${episode.season_number || seasonKey}E${episode.episode_num} URL:`, streamUrl);
+                            
+                            return {
+                                ...episode,
+                                streamUrl,
+                                season_number: episode.season_number || parseInt(seasonKey) || 1,
+                            };
+                        });
                     });
                 }
 
@@ -256,9 +306,35 @@ const SeriesDetail: React.FC = () => {
   };
 
   const handleEpisodePress = (episode: Episode) => {
+    console.log('📺 Episode pressed:', {
+      hasStreamUrl: !!episode.streamUrl,
+      streamUrl: episode.streamUrl,
+      episodeTitle: episode.title,
+      episodeNum: episode.episode_num,
+      seasonNum: episode.season_number,
+    });
+
     if (episode.streamUrl) {
-      setSelectedEpisode(episode);
-      setIsPlayerVisible(true);
+      const playerId = `${series.series_id}_s${episode.season_number}_e${episode.episode_num}`;
+      console.log('🎬 Navigating to player with:', {
+        url: episode.streamUrl,
+        id: playerId,
+        type: 'series',
+        seriesId: series.series_id,
+      });
+
+      router.push({
+        pathname: '/player',
+        params: {
+          url: episode.streamUrl,
+          title: `${series.name} - ${episode.title || `Bölüm ${episode.episode_num}`}`,
+          id: playerId,
+          type: 'series',
+          poster: series.cover || series.backdrop_path?.[0] || '',
+        },
+      });
+    } else {
+      console.error('❌ Episode streamUrl is missing!');
     }
   };
 
@@ -652,29 +728,6 @@ const SeriesDetail: React.FC = () => {
           )}
         </View>
       </ScrollView>
-      {isPlayerVisible && selectedEpisode && selectedEpisode.streamUrl && (
-        <View style={styles.playerOverlay}>
-          <TouchableOpacity
-            style={styles.playerCloseButton}
-            onPress={() => {
-              setIsPlayerVisible(false);
-              setSelectedEpisode(null);
-            }}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="close" size={22} color="#ffffff" />
-          </TouchableOpacity>
-          <View style={styles.playerWrapper}>
-            <VideoPlayer
-              channelName={`${series.name} - ${selectedEpisode.title || `Bölüm ${selectedEpisode.episode_num}`}`}
-              channelDescription={selectedEpisode.info?.plot || description || ''}
-              channelType={genres.join(', ') || 'Dizi'}
-              streamUrl={selectedEpisode.streamUrl}
-              variant="fullscreen"
-            />
-          </View>
-        </View>
-      )}
     </SafeAreaView>
   );
 };

@@ -14,7 +14,6 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import VideoPlayer from '@/app/components/VideoPlayer';
 import { movieService, databaseService, database, type Movie } from '@/services';
 import { fonts } from '@/theme/fonts';
 import apiClient from '@/services/api/client';
@@ -55,19 +54,28 @@ const MovieDetail: React.FC = () => {
           const dbMovie = dbMovies.find((m) => m.streamId.toString() === id);
 
           if (dbMovie) {
-            const credentials = apiClient.getCredentials();
-            const baseUrl = apiClient.getBaseUrl();
+            const credentials = await storageService.getCredentials();
+            const baseUrl = await storageService.getItem('baseUrl');
 
+            let streamUrl = '';
             if (credentials && baseUrl) {
-              const streamUrl = buildMovieUrl(
-                baseUrl,
+              let fullBaseUrl = baseUrl;
+              if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
+                  fullBaseUrl = `${credentials.protocol || 'http'}://${baseUrl}`;
+              }
+
+              streamUrl = buildMovieUrl(
+                fullBaseUrl,
                 credentials.username,
                 credentials.password,
                 dbMovie.streamId.toString(),
                 dbMovie.containerExtension || 'mp4'
               );
+              
+              console.log('🎬 Movie URL built from DB:', streamUrl);
+            }
 
-              movieData = {
+            movieData = {
                 num: 1,
                 stream_id: dbMovie.streamId,
                 name: dbMovie.name,
@@ -82,7 +90,7 @@ const MovieDetail: React.FC = () => {
                 custom_sid: dbMovie.customSid || '',
                 direct_source: dbMovie.directSource || '',
                 streamUrl: streamUrl,
-              };
+            };
 
               setMovie(movieData);
               const isFav = await databaseService.isFavorite(movieData.stream_id.toString());
@@ -158,10 +166,10 @@ const MovieDetail: React.FC = () => {
                         m.cast = apiMovieInfo.info.cast || apiMovieInfo.info.actors || undefined;
                         m.director = apiMovieInfo.info.director || undefined;
                         m.genre = apiMovieInfo.info.genre || undefined;
-                        m.releaseDate = apiMovieInfo.info.releasedate || apiMovieInfo.info.release_date || undefined;
+                        m.releaseDate = apiMovieInfo.info.releasedate || undefined;
                         m.duration = apiMovieInfo.info.duration || undefined;
                         m.durationSecs = apiMovieInfo.info.duration_secs?.toString() || undefined;
-                        m.backdropPath = JSON.stringify(apiMovieInfo.info.backdrop_path || []);
+                        m.backdropPath = JSON.stringify((apiMovieInfo.info as any).backdrop_path || []);
                         m.youtubeTrailer = apiMovieInfo.info.youtube_trailer || undefined;
                         m.tmdbId = apiMovieInfo.info.tmdb_id || undefined;
                         m.country = apiMovieInfo.info.country || undefined;
@@ -393,7 +401,20 @@ const MovieDetail: React.FC = () => {
                   style={[styles.playButton, !movie.streamUrl && styles.playButtonDisabled]}
                   activeOpacity={0.9}
                   disabled={!movie.streamUrl}
-                  onPress={() => setIsPlayerVisible(true)}
+                  onPress={() => {
+                    if (movie.streamUrl) {
+                      router.push({
+                        pathname: '/player',
+                        params: {
+                          url: movie.streamUrl,
+                          title: movie.name,
+                          id: movie.stream_id.toString(),
+                          type: 'movie',
+                          poster: movie.stream_icon || '',
+                        },
+                      });
+                    }
+                  }}
                 >
                   <Ionicons name="play" size={18} color="#ffffff" style={{ marginRight: 8 }} />
                   <Text style={styles.playButtonText}>Oynat</Text>
@@ -500,26 +521,6 @@ const MovieDetail: React.FC = () => {
           )}
         </View>
       </ScrollView>
-      {isPlayerVisible && movie.streamUrl && (
-        <View style={styles.playerOverlay}>
-          <TouchableOpacity
-            style={styles.playerCloseButton}
-            onPress={() => setIsPlayerVisible(false)}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="close" size={22} color="#ffffff" />
-          </TouchableOpacity>
-          <View style={styles.playerWrapper}>
-            <VideoPlayer
-              channelName={movie.name}
-              channelDescription={description || ''}
-              channelType={genres.join(', ') || 'Film'}
-              streamUrl={movie.streamUrl}
-              variant="fullscreen"
-            />
-          </View>
-        </View>
-      )}
     </SafeAreaView>
   );
 };

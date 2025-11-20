@@ -1,17 +1,18 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { View, StyleSheet, SafeAreaView, Platform, Text, ActivityIndicator, TouchableOpacity, useWindowDimensions, TextInput, FlatList } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Stack, useRouter, Redirect } from 'expo-router';
+import { Stack, useRouter, Redirect, useFocusEffect } from 'expo-router';
 import { fonts } from '@/theme/fonts';
 import CategoryList from '@/app/components/CategoryList';
 import ChannelCard from '@/app/components/ChannelCard';
-import VideoPlayer from '@/app/components/VideoPlayer';
+import SearchHeader from '@/app/components/SearchHeader';
 import channelService from '@/services/channel.service';
 import { databaseService, storageService, database } from '@/services';
 import apiClient from '@/services/api/client';
 import { buildStreamUrl } from '@/services/api/endpoints';
 import ChannelModel from '@/services/database/models/Channel';
 import LiveCategoryModel from '@/services/database/models/LiveCategory';
+import { turkishIncludes } from '@/utils/textUtils';
 
 interface Channel {
   id: string;
@@ -52,6 +53,12 @@ const LiveTv: React.FC = () => {
     checkAuthentication();
   }, []);
 
+  useFocusEffect(
+    useCallback(() => {
+      loadFavorites();
+    }, [])
+  );
+
   const checkAuthentication = async () => {
     try {
       console.log('🔍 Kimlik doğrulaması kontrol ediliyor...');
@@ -79,7 +86,7 @@ const LiveTv: React.FC = () => {
     if (selectedCategory) {
       loadChannels(selectedCategory);
     }
-  }, [selectedCategory]);
+  }, [selectedCategory, favorites]);
 
   const loadCategories = async () => {
     try {
@@ -244,53 +251,6 @@ const LiveTv: React.FC = () => {
     setSelectedChannel(null);
   };
 
-  const handleChannelSelect = async (channel: { id: string; name: string; streamUrl?: string }) => {
-    console.log('🎯 Kanal seçildi:', channel.name);
-
-    const foundChannel = channels.find((ch) => ch.id === channel.id);
-
-    if (foundChannel) {
-      setSelectedChannel(foundChannel);
-      setIsVideoFullScreen(true);
-      console.log('✅ Kanal yüklendi:', foundChannel.name);
-      await loadEPG(channel.id);
-    } else {
-      console.error('❌ Kanal bulunamadı:', channel.id);
-    }
-  };
-
-  const handleExitFullScreen = () => {
-    setIsVideoFullScreen(false);
-    setSelectedChannel(null);
-  };
-
-  const loadEPG = async (streamId: string) => {
-    try {
-      setLoadingEPG(true);
-      const epg = await channelService.getEPG(streamId, 5);
-
-      const formattedEPG = epg.map((program) => ({
-        title: program.title,
-        description: program.description || '',
-        startTime: new Date(program.start_timestamp * 1000).toLocaleTimeString('tr-TR', {
-          hour: '2-digit',
-          minute: '2-digit',
-        }),
-        endTime: new Date(program.stop_timestamp * 1000).toLocaleTimeString('tr-TR', {
-          hour: '2-digit',
-          minute: '2-digit',
-        }),
-      }));
-
-      setEpgData(formattedEPG);
-      console.log(`✅ ${formattedEPG.length} program EPG verileri yüklendi`);
-    } catch (error) {
-      console.error('❌ EPG yüklenemedi:', error);
-      setEpgData([]);
-    } finally {
-      setLoadingEPG(false);
-    }
-  };
 
   const handleToggleMobileMenu = () => {
     setIsMobileMenuOpen(!isMobileMenuOpen);
@@ -317,31 +277,39 @@ const LiveTv: React.FC = () => {
         }
         return newSet;
       });
-
-      if (selectedCategory === 'favorites') {
-        loadChannels('favorites');
-      }
     } catch (error) {
       console.error('❌ Favori işlemi başarısız:', error);
     }
   };
 
   const filteredChannels = useMemo(() => {
-    if (!searchQuery.trim()) {
+    if (!searchQuery.trim() || searchQuery.trim().length < 3) {
       return channels;
     }
 
-    const query = searchQuery.toLowerCase();
+    // Türkçe karakter desteği ile arama
     return channels.filter(
       (channel) =>
-        channel.name.toLowerCase().includes(query) ||
-        channel.subscribers.toLowerCase().includes(query)
+        turkishIncludes(channel.name, searchQuery) ||
+        turkishIncludes(channel.subscribers, searchQuery)
     );
   }, [channels, searchQuery]);
 
   const handleSearchChange = useCallback((value: string) => {
     setSearchQuery(value);
   }, []);
+
+  const handleChannelSelect = useCallback((channel: Channel) => {
+    if (channel.streamUrl) {
+      router.push({
+        pathname: '/player',
+        params: {
+          url: channel.streamUrl,
+          title: channel.name,
+        },
+      });
+    }
+  }, [router]);
 
   const renderChannelItem = useCallback(
     ({ item }: { item: Channel }) => (
@@ -354,7 +322,7 @@ const LiveTv: React.FC = () => {
           quality={item.quality}
           isFavorite={favorites.has(item.id)}
           onToggleFavorite={handleToggleFavorite}
-          onChannelSelect={handleChannelSelect}
+          onChannelSelect={() => handleChannelSelect(item)}
           variant="grid"
         />
       </View>
@@ -471,24 +439,13 @@ const LiveTv: React.FC = () => {
         </View>
 
         <View style={styles.channelListWrapper}>
-          <View style={styles.topBarWrapper}>
-            <View>
-              <Text style={styles.topBarHeading}>Kanallar</Text>
-              <Text style={styles.topBarSubheading}>{filteredChannels.length} kanal</Text>
-            </View>
-            <View style={styles.searchContainer}>
-              <Ionicons name="search" size={18} color="#dbeafe" />
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Kanallarda ara..."
-                placeholderTextColor="rgba(219, 234, 254, 0.6)"
-                value={searchQuery}
-                onChangeText={handleSearchChange}
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-            </View>
-          </View>
+          <SearchHeader
+            title="Kanallar"
+            onSearch={handleSearchChange}
+            placeholder="Kanallarda ara..."
+            itemCount={filteredChannels.length}
+            itemLabel="kanal"
+          />
 
           {loadingChannels ? (
             <View style={styles.channelsLoading}>
@@ -527,23 +484,6 @@ const LiveTv: React.FC = () => {
         </View>
       </View>
 
-      {isVideoFullScreen && (
-        <View style={styles.fullscreenOverlay}>
-          <TouchableOpacity style={styles.backButton} onPress={handleExitFullScreen}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <View style={styles.fullscreenPlayerWrapper}>
-            <VideoPlayer
-              channelName={currentChannel.name}
-              channelDescription={currentChannel.description}
-              channelType={currentChannel.type}
-              streamUrl={currentChannel.streamUrl}
-              epgData={epgData}
-              variant="fullscreen"
-            />
-          </View>
-        </View>
-      )}
     </SafeAreaView>
   );
 };
@@ -607,46 +547,6 @@ const styles = StyleSheet.create({
   channelListWrapper: {
     flex: 1,
     backgroundColor: '#0033ab',
-  },
-  topBarWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 18,
-    paddingHorizontal: 4,
-  },
-  topBarHeading: {
-    color: '#f8fafc',
-    fontSize: 18,
-    letterSpacing: 0.6,
-    marginBottom: 2,
-    fontFamily: fonts.bold,
-  },
-  topBarSubheading: {
-    color: 'rgba(226, 232, 240, 0.75)',
-    fontSize: 12,
-    fontFamily: fonts.regular,
-  },
-  searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 999,
-    backgroundColor: '#1d4ed8',
-    gap: 6,
-    flex: 1,
-    maxWidth: 420,
-    shadowColor: '#1d4ed8',
-    shadowOpacity: Platform.OS === 'web' ? 0.25 : 0.18,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 5 },
-  },
-  searchInput: {
-    flex: 1,
-    color: '#dbeafe',
-    fontSize: 12,
-    fontFamily: fonts.regular,
   },
   channelsGrid: {
     paddingBottom: 48,

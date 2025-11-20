@@ -1,3 +1,4 @@
+import { Q } from '@nozbe/watermelondb';
 import { database } from './database';
 import Favorite from './database/models/Favorite';
 import WatchHistory from './database/models/WatchHistory';
@@ -68,11 +69,12 @@ class DatabaseService {
       // Önce var mı kontrol et
       const existing = await database!
         .get<Favorite>('favorites')
-        .find(item.id);
+        .query(Q.where('item_id', item.id), Q.where('item_type', item.type))
+        .fetch();
 
-      if (existing) {
+      if (existing.length > 0) {
         // Varsa güncelle
-        await existing.update((fav) => {
+        await existing[0].update((fav) => {
           fav.title = item.title;
           fav.poster = item.poster;
           fav.cover = item.cover;
@@ -100,10 +102,14 @@ class DatabaseService {
     this.checkDatabase();
     await database!.write(async () => {
       try {
-        const favorite = await database!
+        const existing = await database!
           .get<Favorite>('favorites')
-          .find(itemId);
-        await favorite.destroyPermanently();
+          .query(Q.where('item_id', itemId))
+          .fetch();
+          
+        if (existing.length > 0) {
+            await Promise.all(existing.map(fav => fav.destroyPermanently()));
+        }
       } catch (error) {
         console.log('Favorite not found:', itemId);
       }
@@ -148,10 +154,11 @@ class DatabaseService {
   async isFavorite(itemId: string): Promise<boolean> {
     if (!database) return false;
     try {
-      const favorite = await database
+      const existing = await database
         .get<Favorite>('favorites')
-        .find(itemId);
-      return !!favorite;
+        .query(Q.where('item_id', itemId))
+        .fetch();
+      return existing.length > 0;
     } catch {
       return false;
     }
@@ -249,6 +256,80 @@ class DatabaseService {
     });
   }
 
+  /**
+   * Veritabanını sıfırla (Sunucu değişimi için)
+   * Tüm içerik verilerini siler, ayarlar korunur
+   */
+  async resetDatabase(): Promise<void> {
+    if (!database) return;
+    
+    console.log('🗑️ Veritabanı sıfırlanıyor...');
+    
+    await database.write(async () => {
+      try {
+        // Channels
+        const channels = await database.get('channels').query().fetch();
+        await Promise.all(channels.map((item) => item.destroyPermanently()));
+        console.log('✅ Channels silindi:', channels.length);
+
+        // Movies
+        const movies = await database.get('movies').query().fetch();
+        await Promise.all(movies.map((item) => item.destroyPermanently()));
+        console.log('✅ Movies silindi:', movies.length);
+
+        // Series
+        const series = await database.get('series').query().fetch();
+        await Promise.all(series.map((item) => item.destroyPermanently()));
+        console.log('✅ Series silindi:', series.length);
+
+        // EPG Programs
+        const epgPrograms = await database.get('epg_programs').query().fetch();
+        await Promise.all(epgPrograms.map((item) => item.destroyPermanently()));
+        console.log('✅ EPG Programs silindi:', epgPrograms.length);
+
+        // Favorites
+        const favorites = await database.get('favorites').query().fetch();
+        await Promise.all(favorites.map((item) => item.destroyPermanently()));
+        console.log('✅ Favorites silindi:', favorites.length);
+
+        // Watch History
+        const watchHistory = await database.get('watch_history').query().fetch();
+        await Promise.all(watchHistory.map((item) => item.destroyPermanently()));
+        console.log('✅ Watch History silindi:', watchHistory.length);
+
+        // Continue Watching
+        const continueWatching = await database.get('continue_watching').query().fetch();
+        await Promise.all(continueWatching.map((item) => item.destroyPermanently()));
+        console.log('✅ Continue Watching silindi:', continueWatching.length);
+
+        // Live Categories
+        const liveCategories = await database.get('live_categories').query().fetch();
+        await Promise.all(liveCategories.map((item) => item.destroyPermanently()));
+        console.log('✅ Live Categories silindi:', liveCategories.length);
+
+        // Movie Categories
+        const movieCategories = await database.get('movie_categories').query().fetch();
+        await Promise.all(movieCategories.map((item) => item.destroyPermanently()));
+        console.log('✅ Movie Categories silindi:', movieCategories.length);
+
+        // Series Categories
+        const seriesCategories = await database.get('series_categories').query().fetch();
+        await Promise.all(seriesCategories.map((item) => item.destroyPermanently()));
+        console.log('✅ Series Categories silindi:', seriesCategories.length);
+
+        // Episode Progress
+        const episodeProgress = await database.get('episode_progress').query().fetch();
+        await Promise.all(episodeProgress.map((item) => item.destroyPermanently()));
+        console.log('✅ Episode Progress silindi:', episodeProgress.length);
+
+        console.log('✅ Veritabanı başarıyla sıfırlandı!');
+      } catch (error) {
+        console.error('❌ Veritabanı sıfırlama hatası:', error);
+        throw error;
+      }
+    });
+  }
+
   // ============================================
   // CONTINUE WATCHING
   // ============================================
@@ -263,11 +344,12 @@ class DatabaseService {
         // Önce var mı kontrol et
         const existing = await database
           .get<ContinueWatching>('continue_watching')
-          .find(item.id);
+          .query(Q.where('item_id', item.id))
+          .fetch();
 
-        if (existing) {
+        if (existing.length > 0) {
           // Varsa güncelle
-          await existing.update((cw) => {
+          await existing[0].update((cw) => {
             cw.title = item.title;
             cw.poster = item.poster;
             cw.cover = item.cover;
@@ -291,18 +373,7 @@ class DatabaseService {
           });
         }
       } catch (error) {
-        // Eğer bulunamadıysa yeni oluştur
-        await database.get<ContinueWatching>('continue_watching').create((cw) => {
-          cw.itemId = item.id;
-          cw.itemType = item.type;
-          cw.title = item.title;
-          cw.poster = item.poster;
-          cw.cover = item.cover;
-          cw.progress = item.progress;
-          cw.currentTime = item.currentTime;
-          cw.duration = item.duration;
-          cw.updatedAt = new Date();
-        });
+         console.error('Save continue watching error:', error);
       }
     });
   }
@@ -330,16 +401,50 @@ class DatabaseService {
   }
 
   /**
+   * Tek bir item için izlemeye devam bilgisini getir
+   */
+  async getContinueWatchingItem(itemId: string): Promise<ContinueWatchingItem | null> {
+    if (!database) return null;
+    try {
+      const items = await database
+        .get<ContinueWatching>('continue_watching')
+        .query(Q.where('item_id', itemId))
+        .fetch();
+
+      if (items.length === 0) return null;
+
+      const item = items[0];
+      return {
+        id: item.itemId,
+        type: item.itemType as 'movie' | 'series' | 'channel',
+        title: item.title,
+        poster: item.poster,
+        cover: item.cover,
+        progress: item.progress,
+        currentTime: item.currentTime,
+        duration: item.duration,
+      };
+    } catch (error) {
+      console.error('Get continue watching item error:', error);
+      return null;
+    }
+  }
+
+  /**
    * İzlemeye devam etten kaldır
    */
   async removeContinueWatching(itemId: string): Promise<void> {
     if (!database) return;
     await database.write(async () => {
       try {
-        const item = await database
+        const existing = await database
           .get<ContinueWatching>('continue_watching')
-          .find(itemId);
-        await item.destroyPermanently();
+          .query(Q.where('item_id', itemId))
+          .fetch();
+        
+        if (existing.length > 0) {
+            await Promise.all(existing.map(item => item.destroyPermanently()));
+        }
       } catch (error) {
         console.log('Continue watching item not found:', itemId);
       }
@@ -451,4 +556,3 @@ class DatabaseService {
 }
 
 export default new DatabaseService();
-

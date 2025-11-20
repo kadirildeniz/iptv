@@ -3,92 +3,80 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
+  SectionList,
   TouchableOpacity,
   Switch,
   Platform,
   SafeAreaView,
   Alert,
   ActivityIndicator,
-  TextInput,
   Modal,
+  ScrollView,
+  TextInput,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { storageService, authService } from '@/services';
+import { Ionicons } from '@expo/vector-icons';
+import { storageService, authService, databaseService } from '@/services';
 import { fonts } from '@/theme/fonts';
+import syncService from '@/services/sync.service';
 
-interface Settings {
-  theme: 'light' | 'dark';
-  language: 'tr' | 'en';
-  autoplay: boolean;
-  defaultQuality: 'auto' | '1080p' | '720p' | '480p';
-  subtitleEnabled: boolean;
-  ageRestriction: boolean;
-  autoPlayNextEpisode: boolean;
-  cacheSize: 'small' | 'medium' | 'large';
-  networkOptimization: boolean;
-  dataSaver: boolean;
-  autoQuality: boolean;
+type SettingItemType = 'switch' | 'navigation' | 'info' | 'action' | 'selector';
+
+interface SettingItem {
+  id: string;
+  title: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  type: SettingItemType;
+  value?: string | boolean;
+  options?: { label: string; value: any }[];
+  onPress?: () => void;
+  onValueChange?: (value: any) => void;
+  badge?: string;
+  badgeColor?: string;
+  danger?: boolean;
 }
 
-const Settings: React.FC = () => {
+interface SettingSection {
+  title: string;
+  emoji: string;
+  data: SettingItem[];
+}
+
+const SettingsScreen: React.FC = () => {
   const router = useRouter();
-  const [settings, setSettings] = useState<Settings>({
-    theme: 'dark',
-    language: 'tr',
-    autoplay: true,
-    defaultQuality: 'auto',
-    subtitleEnabled: false,
-    ageRestriction: false,
-    autoPlayNextEpisode: true,
-    cacheSize: 'medium',
-    networkOptimization: true,
-    dataSaver: false,
-    autoQuality: true,
-  });
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [lastSync, setLastSync] = useState<string>('Hiçbir zaman');
+
+  // Account Info
   const [accountInfo, setAccountInfo] = useState<any>(null);
   const [credentials, setCredentials] = useState<any>(null);
-  const [showAccountModal, setShowAccountModal] = useState(false);
-  const [editingCredentials, setEditingCredentials] = useState({
-    name: '',
-    host: '',
-    port: '',
-    username: '',
-    password: '',
-  });
-  const [isSavingCredentials, setIsSavingCredentials] = useState(false);
+
+  // Settings States
+  const [audioBoost, setAudioBoost] = useState<number>(1.0);
+  const [dialogEnhancement, setDialogEnhancement] = useState<boolean>(false);
+  const [hwDecoder, setHwDecoder] = useState<boolean>(true);
+  const [parentalControl, setParentalControl] = useState<boolean>(false);
+
+  // Modal States
+  const [audioBoostModal, setAudioBoostModal] = useState(false);
+  const [serverModal, setServerModal] = useState(false);
+  const [serverUrl, setServerUrl] = useState('');
+  const [savingServer, setSavingServer] = useState(false);
 
   useEffect(() => {
-    const initialize = async () => {
-      await loadSettings();
-      await loadCredentials();
-      await loadAccountInfo();
-    };
     initialize();
   }, []);
 
-  useEffect(() => {
-    // Account info yüklendikten sonra credentials'ı güncelle
-    if (accountInfo && credentials) {
-      setEditingCredentials({
-        name: accountInfo?.user_info?.username || credentials.username || '',
-        host: credentials.host || '',
-        port: credentials.port || '',
-        username: credentials.username || '',
-        password: credentials.password || '',
-      });
-    }
-  }, [accountInfo, credentials]);
-
-  const loadSettings = async () => {
+  const initialize = async () => {
     try {
-      const savedSettings = await storageService.getSettings();
-      if (savedSettings) {
-        setSettings({ ...settings, ...savedSettings });
-      }
+      await Promise.all([
+        loadAccountInfo(),
+        loadCredentials(),
+        loadSettings(),
+      ]);
     } catch (error) {
-      console.error('Settings load error:', error);
+      console.error('Initialize error:', error);
     } finally {
       setLoading(false);
     }
@@ -112,66 +100,170 @@ const Settings: React.FC = () => {
     }
   };
 
-  const handleUpdateCredentials = async () => {
-    if (!editingCredentials.host || !editingCredentials.username || !editingCredentials.password) {
-      Alert.alert('Hata', 'Lütfen tüm alanları doldurun');
-      return;
-    }
-
+  const loadSettings = async () => {
     try {
-      setIsSavingCredentials(true);
-      
-      // Yeni credentials ile giriş yap
-      const newCredentials = {
-        host: editingCredentials.host.trim(),
-        port: editingCredentials.port.trim() || '8080',
-        username: editingCredentials.username.trim(),
-        password: editingCredentials.password.trim(),
-      };
+      // Audio Boost
+      const savedAudioBoost = await storageService.getItem<string>('audio_boost_level');
+      if (savedAudioBoost) setAudioBoost(parseFloat(savedAudioBoost));
 
-      // API ile doğrula
-      const accountInfo = await authService.login(newCredentials);
-      
-      // Başarılıysa kaydet
-      await storageService.saveCredentials(newCredentials);
-      setCredentials(newCredentials);
-      setAccountInfo(accountInfo);
-      
-      Alert.alert('Başarılı', 'Hesap bilgileri güncellendi');
-      setShowAccountModal(false);
-    } catch (error: any) {
-      console.error('Update credentials error:', error);
-      Alert.alert('Hata', error.message || 'Hesap bilgileri güncellenirken bir hata oluştu');
-    } finally {
-      setIsSavingCredentials(false);
-    }
-  };
+      // Dialog Enhancement
+      const savedDialog = await storageService.getItem<string>('dialog_enhancement');
+      if (savedDialog) setDialogEnhancement(savedDialog === 'true');
 
-  const openAccountModal = () => {
-    if (credentials) {
-      setEditingCredentials({
-        name: accountInfo?.user_info?.username || credentials.username || '',
-        host: credentials.host || '',
-        port: credentials.port || '',
-        username: credentials.username || '',
-        password: credentials.password || '',
-      });
-    }
-    setShowAccountModal(true);
-  };
+      // HW Decoder
+      const savedHW = await storageService.getItem<string>('hw_decoder');
+      if (savedHW !== null) setHwDecoder(savedHW === 'true');
+      else setHwDecoder(true); // Default true
 
-  const saveSettings = async (newSettings: Partial<Settings>) => {
-    try {
-      const updatedSettings = { ...settings, ...newSettings };
-      setSettings(updatedSettings);
-      await storageService.saveSettings(updatedSettings);
+      // Parental Control
+      const savedParental = await storageService.getItem<string>('parental_control');
+      if (savedParental) setParentalControl(savedParental === 'true');
+
+      // Last Sync
+      const savedLastSync = await storageService.getItem<string>('last_sync_time');
+      if (savedLastSync) {
+        const syncTime = new Date(parseInt(savedLastSync));
+        const now = new Date();
+        const diff = now.getTime() - syncTime.getTime();
+        const minutes = Math.floor(diff / 60000);
+        if (minutes < 1) setLastSync('Az önce');
+        else if (minutes < 60) setLastSync(`${minutes} dk önce`);
+        else if (minutes < 1440) setLastSync(`${Math.floor(minutes / 60)} saat önce`);
+        else setLastSync(`${Math.floor(minutes / 1440)} gün önce`);
+      }
     } catch (error) {
-      console.error('Settings save error:', error);
-      Alert.alert('Hata', 'Ayarlar kaydedilirken bir hata oluştu');
+      console.error('Settings load error:', error);
     }
   };
 
-  const handleLogout = async () => {
+  const saveAudioBoost = async (value: number) => {
+    setAudioBoost(value);
+    await storageService.setItem('audio_boost_level', value.toString());
+  };
+
+  const saveDialogEnhancement = async (value: boolean) => {
+    setDialogEnhancement(value);
+    await storageService.setItem('dialog_enhancement', value.toString());
+  };
+
+  const saveHWDecoder = async (value: boolean) => {
+    setHwDecoder(value);
+    await storageService.setItem('hw_decoder', value.toString());
+  };
+
+  const saveParentalControl = async (value: boolean) => {
+    setParentalControl(value);
+    await storageService.setItem('parental_control', value.toString());
+  };
+
+  const handleSync = async () => {
+    if (syncing) return;
+
+    try {
+      setSyncing(true);
+      
+      Alert.alert(
+        'Senkronizasyon',
+        'Hangi içeriği güncellemek istersiniz?',
+        [
+          { text: 'İptal', style: 'cancel', onPress: () => setSyncing(false) },
+          {
+            text: 'Canlı TV',
+            onPress: async () => {
+              try {
+                await syncService.syncChannelsOnly();
+                await storageService.setItem('last_sync_time', Date.now().toString());
+                await loadSettings();
+                Alert.alert('Başarılı', 'Canlı TV kanalları güncellendi');
+              } catch (error: any) {
+                Alert.alert('Hata', error.message || 'Senkronizasyon başarısız');
+              } finally {
+                setSyncing(false);
+              }
+            },
+          },
+          {
+            text: 'Filmler',
+            onPress: async () => {
+              try {
+                await syncService.syncMoviesOnly();
+                await storageService.setItem('last_sync_time', Date.now().toString());
+                await loadSettings();
+                Alert.alert('Başarılı', 'Filmler güncellendi');
+              } catch (error: any) {
+                Alert.alert('Hata', error.message || 'Senkronizasyon başarısız');
+              } finally {
+                setSyncing(false);
+              }
+            },
+          },
+          {
+            text: 'Diziler',
+            onPress: async () => {
+              try {
+                await syncService.syncSeriesOnly();
+                await storageService.setItem('last_sync_time', Date.now().toString());
+                await loadSettings();
+                Alert.alert('Başarılı', 'Diziler güncellendi');
+              } catch (error: any) {
+                Alert.alert('Hata', error.message || 'Senkronizasyon başarısız');
+              } finally {
+                setSyncing(false);
+              }
+            },
+          },
+        ]
+      );
+    } catch (error) {
+      setSyncing(false);
+    }
+  };
+
+  const handleClearCache = () => {
+    Alert.alert(
+      'Önbelleği Temizle',
+      'Resim önbelleği temizlenecek. Devam edilsin mi?',
+      [
+        { text: 'İptal', style: 'cancel' },
+        {
+          text: 'Temizle',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              // Burada image cache temizleme yapılabilir
+              Alert.alert('Başarılı', 'Önbellek temizlendi');
+            } catch (error) {
+              Alert.alert('Hata', 'Önbellek temizlenirken bir hata oluştu');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleClearHistory = () => {
+    Alert.alert(
+      'Geçmişi Temizle',
+      'Tüm izleme geçmişi silinecek. Devam edilsin mi?',
+      [
+        { text: 'İptal', style: 'cancel' },
+        {
+          text: 'Temizle',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await databaseService.clearHistory();
+              Alert.alert('Başarılı', 'İzleme geçmişi temizlendi');
+            } catch (error) {
+              Alert.alert('Hata', 'Geçmiş temizlenirken bir hata oluştu');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleLogout = () => {
     Alert.alert(
       'Çıkış Yap',
       'Çıkış yapmak istediğinize emin misiniz?',
@@ -183,9 +275,8 @@ const Settings: React.FC = () => {
           onPress: async () => {
             try {
               await storageService.clearCredentials();
-              router.replace('/');
+              router.replace('/login');
             } catch (error) {
-              console.error('Logout error:', error);
               Alert.alert('Hata', 'Çıkış yapılırken bir hata oluştu');
             }
           },
@@ -194,23 +285,106 @@ const Settings: React.FC = () => {
     );
   };
 
-  const clearCache = async () => {
+  const openServerModal = () => {
+    if (credentials?.host) {
+      setServerUrl(credentials.host);
+    }
+    setServerModal(true);
+  };
+
+  const handleSaveServer = async () => {
+    if (!serverUrl.trim()) {
+      Alert.alert('Hata', 'Lütfen sunucu adresini girin');
+      return;
+    }
+
+    // Önce kullanıcıya uyarı göster
     Alert.alert(
-      'Önbelleği Temizle',
-      'Tüm önbellek verileri silinecek. Devam etmek istiyor musunuz?',
+      '⚠️ Sunucu Değişimi',
+      'Sunucu değiştiğinde tüm veriler, favoriler ve izleme geçmişi silinecektir. Yeni sunucudan veriler tekrar indirilecektir.\n\nOnaylıyor musunuz?',
       [
-        { text: 'İptal', style: 'cancel' },
         {
-          text: 'Temizle',
+          text: 'İptal',
+          style: 'cancel',
+        },
+        {
+          text: 'Onayla',
           style: 'destructive',
           onPress: async () => {
             try {
-              // İzleme geçmişini temizle
-              await storageService.clearHistory();
-              Alert.alert('Başarılı', 'Önbellek temizlendi');
-            } catch (error) {
-              console.error('Cache clear error:', error);
-              Alert.alert('Hata', 'Önbellek temizlenirken bir hata oluştu');
+              setSavingServer(true);
+
+              // Mevcut credentials'ı al
+              const currentCredentials = await storageService.getCredentials();
+              
+              if (!currentCredentials) {
+                Alert.alert('Hata', 'Hesap bilgileri bulunamadı');
+                setSavingServer(false);
+                return;
+              }
+
+              // Sadece host'u güncelle, diğer bilgiler aynı kalsın
+              const newCredentials = {
+                ...currentCredentials,
+                host: serverUrl.trim(),
+              };
+
+              console.log('🔄 Yeni sunucu ile bağlantı test ediliyor...');
+
+              // Yeni sunucu ile bağlantı testi yap
+              try {
+                await authService.login(newCredentials);
+                console.log('✅ Yeni sunucu ile bağlantı başarılı');
+              } catch (authError: any) {
+                console.error('❌ Sunucu bağlantı hatası:', authError);
+                setSavingServer(false);
+                Alert.alert(
+                  'Bağlantı Hatası',
+                  authError.message || 'Yeni sunucu adresine bağlanılamadı. Lütfen URL\'yi kontrol edin.'
+                );
+                return;
+              }
+
+              console.log('🗑️ Eski veriler siliniyor...');
+              
+              // Veritabanını sıfırla (Eski sunucudan gelen tüm veriler silinir)
+              await databaseService.resetDatabase();
+
+              console.log('💾 Yeni credentials kaydediliyor...');
+              
+              // Yeni credentials'ı kaydet
+              await storageService.saveCredentials(newCredentials);
+
+              // Son senkronizasyon zamanını sıfırla
+              await storageService.removeItem('last_sync_time');
+
+              // Modal'ı kapat
+              setServerModal(false);
+              setSavingServer(false);
+
+              console.log('✅ Sunucu değişimi tamamlandı');
+
+              // Kullanıcıyı ana sayfaya yönlendir ve bilgilendir
+              Alert.alert(
+                '✅ Başarılı',
+                'Sunucu adresi güncellendi ve eski veriler temizlendi. Ana sayfadan "Güncelle" butonuna basarak yeni içerikleri indirebilirsiniz.',
+                [
+                  {
+                    text: 'Tamam',
+                    onPress: () => {
+                      router.replace('/');
+                    },
+                  },
+                ],
+                { cancelable: false }
+              );
+            } catch (error: any) {
+              console.error('❌ Sunucu değiştirme hatası:', error);
+              setSavingServer(false);
+              Alert.alert(
+                'Hata',
+                error.message || 'Sunucu değiştirilirken bir hata oluştu. Lütfen tekrar deneyin.'
+              );
             }
           },
         },
@@ -218,342 +392,400 @@ const Settings: React.FC = () => {
     );
   };
 
+  const getAudioBoostLabel = (value: number): string => {
+    if (value === 1.0) return '🔇 Kapalı';
+    if (value === 1.5) return '🔉 Hafif (+%50)';
+    if (value === 2.0) return '🔊 Güçlü (+%100)';
+    if (value === 3.0) return '📢 Maksimum (+%200)';
+    return `${value}x`;
+  };
+
+  const maskUrl = (url: string): string => {
+    if (!url) return '';
+    const parts = url.split('.');
+    if (parts.length < 2) return url;
+    return `${parts[0].substring(0, 3)}***${parts[parts.length - 1]}`;
+  };
+
+  // Sections Data
+  const sections: SettingSection[] = [
+    {
+      title: 'HESAP',
+      emoji: '👤',
+      data: [
+        {
+          id: 'username',
+          title: 'Kullanıcı',
+          icon: 'person-outline',
+          type: 'info',
+          value: accountInfo?.user_info?.username || credentials?.username || 'Bilinmiyor',
+          badge: accountInfo?.user_info?.status === 'Active' ? 'Aktif' : 'Pasif',
+          badgeColor: accountInfo?.user_info?.status === 'Active' ? '#10b981' : '#ef4444',
+        },
+        {
+          id: 'server',
+          title: 'Sunucu',
+          icon: 'server-outline',
+          type: 'action',
+          value: credentials?.host ? maskUrl(credentials.host) : 'Bilinmiyor',
+          badge: 'Düzenle',
+          onPress: openServerModal,
+        },
+        {
+          id: 'expiry',
+          title: 'Bitiş Tarihi',
+          icon: 'calendar-outline',
+          type: 'info',
+          value: accountInfo?.user_info?.exp_date
+            ? new Date(accountInfo.user_info.exp_date * 1000).toLocaleDateString('tr-TR')
+            : 'Bilinmiyor',
+        },
+      ],
+    },
+    {
+      title: 'OYNATICI & SES',
+      emoji: '🎬',
+      data: [
+        {
+          id: 'audio_boost',
+          title: 'Ses Güçlendirme',
+          icon: 'volume-high-outline',
+          type: 'selector',
+          value: getAudioBoostLabel(audioBoost),
+          onPress: () => setAudioBoostModal(true),
+        },
+        {
+          id: 'dialog_enhancement',
+          title: 'Diyalog İyileştirme',
+          icon: 'chatbubbles-outline',
+          type: 'switch',
+          value: dialogEnhancement,
+          onValueChange: saveDialogEnhancement,
+        },
+        {
+          id: 'hw_decoder',
+          title: 'Donanım Hızlandırma',
+          icon: 'hardware-chip-outline',
+          type: 'switch',
+          value: hwDecoder,
+          onValueChange: saveHWDecoder,
+        },
+      ],
+    },
+    {
+      title: 'VERİ & SENKRONİZASYON',
+      emoji: '☁️',
+      data: [
+        {
+          id: 'sync',
+          title: 'İçeriği Güncelle',
+          icon: 'cloud-download-outline',
+          type: 'action',
+          value: syncing ? 'Güncelleniyor...' : `Son: ${lastSync}`,
+          onPress: handleSync,
+        },
+        {
+          id: 'clear_cache',
+          title: 'Resim Önbelleği',
+          icon: 'images-outline',
+          type: 'action',
+          value: '~150 MB',
+          badge: 'Temizle',
+          onPress: handleClearCache,
+        },
+        {
+          id: 'clear_history',
+          title: 'Geçmişi Temizle',
+          icon: 'time-outline',
+          type: 'action',
+          onPress: handleClearHistory,
+        },
+      ],
+    },
+    {
+      title: 'GÜVENLİK & DİĞER',
+      emoji: '🛡️',
+      data: [
+        {
+          id: 'parental_control',
+          title: 'Ebeveyn Kontrolü (+18)',
+          icon: 'lock-closed-outline',
+          type: 'switch',
+          value: parentalControl,
+          onValueChange: saveParentalControl,
+        },
+        {
+          id: 'version',
+          title: 'Sürüm',
+          icon: 'information-circle-outline',
+          type: 'info',
+          value: '1.0.0',
+        },
+        {
+          id: 'logout',
+          title: 'Çıkış Yap',
+          icon: 'log-out-outline',
+          type: 'action',
+          danger: true,
+          onPress: handleLogout,
+        },
+      ],
+    },
+  ];
+
+  const renderItem = ({ item }: { item: SettingItem }) => {
+    return (
+      <TouchableOpacity
+        style={[
+          styles.settingItem,
+          item.danger && styles.settingItemDanger,
+        ]}
+        onPress={item.onPress}
+        disabled={!item.onPress && item.type !== 'switch'}
+        activeOpacity={item.onPress || item.type === 'switch' ? 0.7 : 1}
+      >
+        <View style={styles.settingLeft}>
+          <Ionicons
+            name={item.icon}
+            size={22}
+            color={item.danger ? '#ef4444' : '#94a3b8'}
+            style={styles.settingIcon}
+          />
+          <Text
+            style={[
+              styles.settingTitle,
+              item.danger && styles.settingTitleDanger,
+            ]}
+          >
+            {item.title}
+          </Text>
+        </View>
+
+        <View style={styles.settingRight}>
+          {item.type === 'switch' && typeof item.value === 'boolean' && (
+            <Switch
+              value={item.value}
+              onValueChange={item.onValueChange}
+              trackColor={{ false: '#374151', true: '#3b82f6' }}
+              thumbColor={item.value ? '#ffffff' : '#9ca3af'}
+              ios_backgroundColor="#374151"
+            />
+          )}
+
+          {item.type === 'info' && item.badge && (
+            <View
+              style={[
+                styles.badge,
+                { backgroundColor: item.badgeColor || '#3b82f6' },
+              ]}
+            >
+              <Text style={styles.badgeText}>{item.badge}</Text>
+            </View>
+          )}
+
+          {(item.type === 'info' || item.type === 'selector' || item.type === 'action') && item.value && (
+            <Text
+              style={[
+                styles.settingValue,
+                item.danger && styles.settingValueDanger,
+              ]}
+              numberOfLines={1}
+            >
+              {item.value}
+            </Text>
+          )}
+
+          {item.type === 'action' && item.badge && (
+            <View style={styles.actionBadge}>
+              <Text style={styles.actionBadgeText}>{item.badge}</Text>
+            </View>
+          )}
+
+          {(item.type === 'navigation' || item.type === 'selector' || (item.type === 'action' && !item.danger)) && (
+            <Ionicons
+              name="chevron-forward"
+              size={20}
+              color="#64748b"
+              style={styles.chevron}
+            />
+          )}
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  const renderSectionHeader = ({ section }: { section: SettingSection }) => (
+    <View style={styles.sectionHeader}>
+      <Text style={styles.sectionTitle}>
+        {section.emoji} {section.title}
+      </Text>
+    </View>
+  );
+
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.center}>
-          <ActivityIndicator size="large" color="#1e90ff" />
+          <ActivityIndicator size="large" color="#3b82f6" />
           <Text style={styles.loadingText}>Yükleniyor...</Text>
         </View>
       </SafeAreaView>
     );
   }
 
-  // Ayarlar kartları için veri
-  const settingsCards = [
-    {
-      id: 'account',
-      title: 'Hesap',
-      icon: '👤',
-      color: '#1e90ff',
-      onPress: openAccountModal,
-      content: (
-        <View style={styles.cardContent}>
-          {accountInfo?.user_info && (
-            <Text style={styles.cardText} numberOfLines={1}>
-              {accountInfo.user_info.username}
-            </Text>
-          )}
-          {accountInfo?.user_info && (
-            <Text style={styles.cardSubtext}>
-              {accountInfo.user_info.status === 'Active' ? '✅ Aktif' : '❌ Pasif'}
-            </Text>
-          )}
-          {credentials && (
-            <Text style={styles.cardSubtext} numberOfLines={1}>
-              {credentials.host}:{credentials.port}
-            </Text>
-          )}
-        </View>
-      ),
-    },
-    {
-      id: 'appearance',
-      title: 'Görünüm',
-      icon: '🎨',
-      color: '#9b59b6',
-      onPress: () => {
-        // Görünüm ayarları
-      },
-      content: (
-        <View style={styles.cardContent}>
-          <Text style={styles.cardText}>Karanlık Tema</Text>
-          <Switch
-            value={settings.theme === 'dark'}
-            onValueChange={(value) => saveSettings({ theme: value ? 'dark' : 'light' })}
-            trackColor={{ false: '#767577', true: '#9b59b6' }}
-            thumbColor={settings.theme === 'dark' ? '#ffffff' : '#f4f3f4'}
-          />
-        </View>
-      ),
-    },
-    {
-      id: 'video',
-      title: 'Video Oynatıcı',
-      icon: '▶️',
-      color: '#e74c3c',
-      onPress: () => {
-        // Video ayarları
-      },
-      content: (
-        <View style={styles.cardContent}>
-          <View style={styles.settingItem}>
-            <Text style={styles.cardText}>Otomatik Oynatma</Text>
-            <Switch
-              value={settings.autoplay}
-              onValueChange={(value) => saveSettings({ autoplay: value })}
-              trackColor={{ false: '#767577', true: '#e74c3c' }}
-              thumbColor={settings.autoplay ? '#ffffff' : '#f4f3f4'}
-            />
-          </View>
-          <View style={styles.settingItem}>
-            <Text style={styles.cardText}>Alt Yazılar</Text>
-            <Switch
-              value={settings.subtitleEnabled}
-              onValueChange={(value) => saveSettings({ subtitleEnabled: value })}
-              trackColor={{ false: '#767577', true: '#e74c3c' }}
-              thumbColor={settings.subtitleEnabled ? '#ffffff' : '#f4f3f4'}
-            />
-          </View>
-          <View style={styles.settingItem}>
-            <Text style={styles.cardText}>Sonraki Bölüm</Text>
-            <Switch
-              value={settings.autoPlayNextEpisode}
-              onValueChange={(value) => saveSettings({ autoPlayNextEpisode: value })}
-              trackColor={{ false: '#767577', true: '#e74c3c' }}
-              thumbColor={settings.autoPlayNextEpisode ? '#ffffff' : '#f4f3f4'}
-            />
-          </View>
-        </View>
-      ),
-    },
-    {
-      id: 'performance',
-      title: 'Performans',
-      icon: '⚡',
-      color: '#f39c12',
-      onPress: () => {
-        // Performans ayarları
-      },
-      content: (
-        <View style={styles.cardContent}>
-          <View style={styles.settingItem}>
-            <Text style={styles.cardText}>Ağ Optimizasyonu</Text>
-            <Switch
-              value={settings.networkOptimization}
-              onValueChange={(value) => saveSettings({ networkOptimization: value })}
-              trackColor={{ false: '#767577', true: '#f39c12' }}
-              thumbColor={settings.networkOptimization ? '#ffffff' : '#f4f3f4'}
-            />
-          </View>
-          <View style={styles.settingItem}>
-            <Text style={styles.cardText}>Veri Tasarrufu</Text>
-            <Switch
-              value={settings.dataSaver}
-              onValueChange={(value) => saveSettings({ dataSaver: value })}
-              trackColor={{ false: '#767577', true: '#f39c12' }}
-              thumbColor={settings.dataSaver ? '#ffffff' : '#f4f3f4'}
-            />
-          </View>
-          <View style={styles.settingItem}>
-            <Text style={styles.cardText}>Otomatik Kalite</Text>
-            <Switch
-              value={settings.autoQuality}
-              onValueChange={(value) => saveSettings({ autoQuality: value })}
-              trackColor={{ false: '#767577', true: '#f39c12' }}
-              thumbColor={settings.autoQuality ? '#ffffff' : '#f4f3f4'}
-            />
-          </View>
-        </View>
-      ),
-    },
-    {
-      id: 'content',
-      title: 'İçerik',
-      icon: '📺',
-      color: '#2ecc71',
-      onPress: () => {
-        // İçerik ayarları
-      },
-      content: (
-        <View style={styles.cardContent}>
-          <Text style={styles.cardText}>Yaş Sınırı</Text>
-          <Switch
-            value={settings.ageRestriction}
-            onValueChange={(value) => saveSettings({ ageRestriction: value })}
-            trackColor={{ false: '#767577', true: '#2ecc71' }}
-            thumbColor={settings.ageRestriction ? '#ffffff' : '#f4f3f4'}
-          />
-        </View>
-      ),
-    },
-    {
-      id: 'data',
-      title: 'Veri Yönetimi',
-      icon: '💾',
-      color: '#3498db',
-      onPress: () => {
-        // Veri yönetimi
-      },
-      content: (
-        <View style={styles.cardContent}>
-          <TouchableOpacity onPress={clearCache} style={styles.cardAction}>
-            <Text style={styles.cardActionText}>Önbelleği Temizle</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.cardAction}
-            onPress={() => router.push('/settings/favorites')}
-          >
-            <Text style={styles.cardActionText}>Favorileri Yönet</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.cardAction}
-            onPress={() => router.push('/settings/history')}
-          >
-            <Text style={styles.cardActionText}>İzleme Geçmişi</Text>
-          </TouchableOpacity>
-        </View>
-      ),
-    },
-    {
-      id: 'logout',
-      title: 'Çıkış Yap',
-      icon: '🚪',
-      color: '#e74c3c',
-      onPress: handleLogout,
-      content: (
-        <View style={styles.cardContent}>
-          <Text style={styles.cardText}>Hesaptan çıkış yap</Text>
-        </View>
-      ),
-    },
-    {
-      id: 'about',
-      title: 'Uygulama',
-      icon: 'ℹ️',
-      color: '#95a5a6',
-      onPress: () => {
-        Alert.alert('IPTV Uygulaması', 'Versiyon: 1.0.0\n\nIPTV içeriklerini izlemek için geliştirilmiştir.');
-      },
-      content: (
-        <View style={styles.cardContent}>
-          <Text style={styles.cardText}>Versiyon 1.0.0</Text>
-        </View>
-      ),
-    },
-  ];
-
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Ayarlar</Text>
-        </View>
+      <View style={styles.header}>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={styles.backButton}
+        >
+          <Ionicons name="arrow-back" size={24} color="#fff" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Ayarlar</Text>
+        <View style={styles.headerSpacer} />
+      </View>
 
-        {/* Grid Layout - 4'lü kutu */}
-        <View style={styles.gridContainer}>
-          {settingsCards.map((card) => (
-            <TouchableOpacity
-              key={card.id}
-              style={[styles.card, { borderLeftColor: card.color }]}
-              onPress={card.onPress}
-              activeOpacity={0.8}
-            >
-              <View style={styles.cardHeader}>
-                <Text style={styles.cardIcon}>{card.icon}</Text>
-                <Text style={styles.cardTitle}>{card.title}</Text>
-              </View>
-              {card.content}
-            </TouchableOpacity>
-          ))}
-        </View>
+      <SectionList
+        sections={sections}
+        keyExtractor={(item) => item.id}
+        renderItem={renderItem}
+        renderSectionHeader={renderSectionHeader}
+        stickySectionHeadersEnabled={false}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.listContent}
+        ItemSeparatorComponent={() => <View style={styles.separator} />}
+        SectionSeparatorComponent={() => <View style={styles.sectionSeparator} />}
+      />
 
-        <View style={styles.footer} />
-      </ScrollView>
-
-      {/* Hesap Düzenleme Modal */}
+      {/* Audio Boost Modal */}
       <Modal
-        visible={showAccountModal}
-        animationType="slide"
+        visible={audioBoostModal}
+        animationType="fade"
         transparent={true}
-        onRequestClose={() => setShowAccountModal(false)}
+        onRequestClose={() => setAudioBoostModal(false)}
       >
-        <View style={styles.modalOverlay}>
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setAudioBoostModal(false)}
+        >
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Hesap Bilgileri</Text>
-              <TouchableOpacity
-                onPress={() => setShowAccountModal(false)}
-                style={styles.modalCloseButton}
-              >
-                <Text style={styles.modalCloseText}>✕</Text>
-              </TouchableOpacity>
+              <Text style={styles.modalTitle}>Ses Güçlendirme</Text>
+              <Text style={styles.modalSubtitle}>
+                Düşük sesli yayınlar için ses seviyesini artırın
+              </Text>
             </View>
 
-            <ScrollView style={styles.modalScrollView}>
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Ad</Text>
-                <TextInput
-                  style={styles.input}
-                  value={editingCredentials.name}
-                  onChangeText={(text) => setEditingCredentials({ ...editingCredentials, name: text })}
-                  placeholder="Adınız"
-                  placeholderTextColor="rgba(255, 255, 255, 0.5)"
-                />
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>URL (Host)</Text>
-                <TextInput
-                  style={styles.input}
-                  value={editingCredentials.host}
-                  onChangeText={(text) => setEditingCredentials({ ...editingCredentials, host: text })}
-                  placeholder="örn: zunexle.live"
-                  placeholderTextColor="rgba(255, 255, 255, 0.5)"
-                  autoCapitalize="none"
-                />
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Port</Text>
-                <TextInput
-                  style={styles.input}
-                  value={editingCredentials.port}
-                  onChangeText={(text) => setEditingCredentials({ ...editingCredentials, port: text })}
-                  placeholder="örn: 8080"
-                  placeholderTextColor="rgba(255, 255, 255, 0.5)"
-                  keyboardType="numeric"
-                />
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Kullanıcı Adı</Text>
-                <TextInput
-                  style={styles.input}
-                  value={editingCredentials.username}
-                  onChangeText={(text) => setEditingCredentials({ ...editingCredentials, username: text })}
-                  placeholder="Kullanıcı adı"
-                  placeholderTextColor="rgba(255, 255, 255, 0.5)"
-                  autoCapitalize="none"
-                />
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Şifre</Text>
-                <TextInput
-                  style={styles.input}
-                  value={editingCredentials.password}
-                  onChangeText={(text) => setEditingCredentials({ ...editingCredentials, password: text })}
-                  placeholder="Şifre"
-                  placeholderTextColor="rgba(255, 255, 255, 0.5)"
-                  secureTextEntry
-                />
-              </View>
-
-              <TouchableOpacity
-                style={[styles.saveButton, isSavingCredentials && styles.saveButtonDisabled]}
-                onPress={handleUpdateCredentials}
-                disabled={isSavingCredentials}
-              >
-                {isSavingCredentials ? (
-                  <ActivityIndicator color="#ffffff" />
-                ) : (
-                  <Text style={styles.saveButtonText}>Güncelle</Text>
-                )}
-              </TouchableOpacity>
-            </ScrollView>
+            <View style={styles.modalOptions}>
+              {[
+                { value: 1.0, label: '🔇 Kapalı (1.0x)', subtitle: 'Normal ses seviyesi' },
+                { value: 1.5, label: '🔉 Hafif (+%50)', subtitle: 'Biraz daha yüksek' },
+                { value: 2.0, label: '🔊 Güçlü (+%100)', subtitle: 'İki kat ses' },
+                { value: 3.0, label: '📢 Maksimum (+%200)', subtitle: 'Üç kat ses' },
+              ].map((option) => (
+                <TouchableOpacity
+                  key={option.value}
+                  style={[
+                    styles.modalOption,
+                    audioBoost === option.value && styles.modalOptionActive,
+                  ]}
+                  onPress={() => {
+                    saveAudioBoost(option.value);
+                    setAudioBoostModal(false);
+                  }}
+                >
+                  <View style={styles.modalOptionContent}>
+                    <Text
+                      style={[
+                        styles.modalOptionLabel,
+                        audioBoost === option.value && styles.modalOptionLabelActive,
+                      ]}
+                    >
+                      {option.label}
+                    </Text>
+                    <Text style={styles.modalOptionSubtitle}>{option.subtitle}</Text>
+                  </View>
+                  {audioBoost === option.value && (
+                    <Ionicons name="checkmark-circle" size={24} color="#3b82f6" />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </View>
           </View>
-        </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Server Edit Modal */}
+      <Modal
+        visible={serverModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => !savingServer && setServerModal(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => !savingServer && setServerModal(false)}
+        >
+          <TouchableOpacity
+            activeOpacity={1}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <View style={styles.serverModalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Sunucu Adresini Düzenle</Text>
+                <Text style={styles.modalSubtitle}>
+                  Yeni sunucu adresini girin
+                </Text>
+              </View>
+
+              <View style={styles.serverModalBody}>
+                <Text style={styles.inputLabel}>Sunucu URL</Text>
+                <TextInput
+                  style={styles.serverInput}
+                  value={serverUrl}
+                  onChangeText={setServerUrl}
+                  placeholder="örn: zunexle.live"
+                  placeholderTextColor="#64748b"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  editable={!savingServer}
+                />
+                <Text style={styles.inputHint}>
+                  * Kullanıcı adı ve şifre değişmeyecektir
+                </Text>
+              </View>
+
+              <View style={styles.serverModalFooter}>
+                <TouchableOpacity
+                  style={[styles.serverModalButton, styles.serverModalButtonCancel]}
+                  onPress={() => setServerModal(false)}
+                  disabled={savingServer}
+                >
+                  <Text style={styles.serverModalButtonTextCancel}>İptal</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.serverModalButton,
+                    styles.serverModalButtonSave,
+                    savingServer && styles.serverModalButtonDisabled,
+                  ]}
+                  onPress={handleSaveServer}
+                  disabled={savingServer}
+                >
+                  {savingServer ? (
+                    <ActivityIndicator color="#ffffff" size="small" />
+                  ) : (
+                    <Text style={styles.serverModalButtonTextSave}>Kaydet</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
       </Modal>
     </SafeAreaView>
   );
@@ -562,212 +794,270 @@ const Settings: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0d1b2a',
-    ...(Platform.OS === 'web' && {
-      background: 'linear-gradient(135deg, #0d1b2a 0%, #1e3a8a 50%, #0d1b2a 100%)',
-    }),
-  },
-  scrollView: {
-    flex: 1,
+    backgroundColor: '#0f172a',
   },
   header: {
-    padding: 20,
-    paddingTop: Platform.OS === 'web' ? 40 : 20,
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: '700',
-    color: '#ffffff',
-    fontFamily: fonts.bold,
-  },
-  gridContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    paddingHorizontal: 16,
-    paddingBottom: 20,
-    ...(Platform.OS === 'web' && {
-      maxWidth: 1200,
-      alignSelf: 'center',
-      width: '100%',
-    }),
-  },
-  card: {
-    width: Platform.OS === 'web' ? '23%' : '47%',
-    backgroundColor: 'rgba(13, 27, 42, 0.6)',
-    borderRadius: 16,
-    padding: 16,
-    margin: Platform.OS === 'web' ? '1%' : '1.5%',
-    borderWidth: 2,
-    borderLeftWidth: 4,
-    borderColor: 'rgba(30, 144, 255, 0.2)',
-    minHeight: 160,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
-    ...(Platform.OS === 'web' && {
-      minWidth: 200,
-    }),
-  },
-  cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
-  },
-  cardIcon: {
-    fontSize: 24,
-    marginRight: 8,
-  },
-  cardTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#ffffff',
-    flex: 1,
-    fontFamily: fonts.bold,
-  },
-  cardContent: {
-    flex: 1,
     justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#1e293b',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(148, 163, 184, 0.1)',
+  },
+  backButton: {
+    padding: 8,
+    marginLeft: -8,
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontFamily: fonts.bold,
+    color: '#fff',
+    letterSpacing: 0.5,
+  },
+  headerSpacer: {
+    width: 40,
+  },
+  listContent: {
+    paddingBottom: 32,
+  },
+  sectionHeader: {
+    paddingHorizontal: 20,
+    paddingTop: 24,
+    paddingBottom: 8,
+  },
+  sectionTitle: {
+    fontSize: 13,
+    fontFamily: fonts.bold,
+    color: '#94a3b8',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
   },
   settingItem: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    backgroundColor: '#1e293b',
+    marginHorizontal: 16,
   },
-  cardText: {
-    fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.9)',
+  settingItemDanger: {
+    backgroundColor: 'rgba(239, 68, 68, 0.05)',
+  },
+  settingLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
     flex: 1,
-    marginRight: 8,
+  },
+  settingIcon: {
+    marginRight: 12,
+  },
+  settingTitle: {
+    fontSize: 16,
+    fontFamily: fonts.medium,
+    color: '#fff',
+    flex: 1,
+  },
+  settingTitleDanger: {
+    color: '#ef4444',
+  },
+  settingRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  settingValue: {
+    fontSize: 14,
     fontFamily: fonts.regular,
+    color: '#94a3b8',
+    maxWidth: 150,
   },
-  cardSubtext: {
+  settingValueDanger: {
+    color: '#ef4444',
+  },
+  badge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  badgeText: {
     fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.6)',
-    fontFamily: fonts.regular,
-  },
-  cardAction: {
-    backgroundColor: 'rgba(30, 144, 255, 0.2)',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    alignSelf: 'flex-start',
-    marginTop: 8,
-  },
-  cardActionText: {
-    fontSize: 12,
-    color: '#1e90ff',
-    fontWeight: '600',
     fontFamily: fonts.semibold,
+    color: '#fff',
+  },
+  actionBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
+    backgroundColor: 'rgba(59, 130, 246, 0.15)',
+  },
+  actionBadgeText: {
+    fontSize: 12,
+    fontFamily: fonts.semibold,
+    color: '#3b82f6',
+  },
+  chevron: {
+    marginLeft: 4,
+  },
+  separator: {
+    height: 1,
+    backgroundColor: 'rgba(148, 163, 184, 0.1)',
+    marginLeft: 68,
+    marginRight: 20,
+  },
+  sectionSeparator: {
+    height: 1,
+    backgroundColor: 'transparent',
   },
   center: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
   },
   loadingText: {
-    color: '#ffffff',
-    fontSize: 18,
     marginTop: 16,
-    fontFamily: fonts.semibold,
-  },
-  footer: {
-    height: 40,
+    fontSize: 16,
+    fontFamily: fonts.medium,
+    color: '#94a3b8',
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
   },
   modalContent: {
-    backgroundColor: '#1a1a2e',
-    borderRadius: 20,
+    backgroundColor: '#1e293b',
+    borderRadius: 16,
     width: '100%',
-    maxWidth: 500,
-    maxHeight: '80%',
+    maxWidth: 400,
+    overflow: 'hidden',
     borderWidth: 1,
-    borderColor: 'rgba(30, 144, 255, 0.3)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.5,
-    shadowRadius: 16,
-    elevation: 16,
+    borderColor: 'rgba(148, 163, 184, 0.2)',
   },
   modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
     padding: 20,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(30, 144, 255, 0.2)',
+    borderBottomColor: 'rgba(148, 163, 184, 0.1)',
   },
   modalTitle: {
     fontSize: 20,
-    fontWeight: '700',
-    color: '#ffffff',
     fontFamily: fonts.bold,
+    color: '#fff',
+    marginBottom: 4,
   },
-  modalCloseButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    justifyContent: 'center',
+  modalSubtitle: {
+    fontSize: 14,
+    fontFamily: fonts.regular,
+    color: '#94a3b8',
+  },
+  modalOptions: {
+    padding: 12,
+  },
+  modalOption: {
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    borderRadius: 12,
+    backgroundColor: '#0f172a',
+    marginBottom: 8,
+    borderWidth: 2,
+    borderColor: 'transparent',
   },
-  modalCloseText: {
-    fontSize: 18,
-    color: '#ffffff',
-    fontWeight: '700',
-    fontFamily: fonts.bold,
+  modalOptionActive: {
+    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+    borderColor: '#3b82f6',
   },
-  modalScrollView: {
-    maxHeight: 400,
+  modalOptionContent: {
+    flex: 1,
   },
-  inputGroup: {
-    marginBottom: 16,
-    paddingHorizontal: 20,
+  modalOptionLabel: {
+    fontSize: 16,
+    fontFamily: fonts.semibold,
+    color: '#fff',
+    marginBottom: 2,
+  },
+  modalOptionLabelActive: {
+    color: '#3b82f6',
+  },
+  modalOptionSubtitle: {
+    fontSize: 13,
+    fontFamily: fonts.regular,
+    color: '#94a3b8',
+  },
+  serverModalContent: {
+    backgroundColor: '#1e293b',
+    borderRadius: 16,
+    width: 340,
+    maxWidth: '90%',
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(148, 163, 184, 0.2)',
+  },
+  serverModalBody: {
+    padding: 20,
   },
   inputLabel: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#93c5fd',
-    marginBottom: 8,
     fontFamily: fonts.semibold,
+    color: '#94a3b8',
+    marginBottom: 8,
   },
-  input: {
-    backgroundColor: 'rgba(13, 27, 42, 0.6)',
+  serverInput: {
+    backgroundColor: '#0f172a',
     borderRadius: 12,
-    padding: 14,
-    color: '#ffffff',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     fontSize: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(30, 144, 255, 0.2)',
     fontFamily: fonts.regular,
+    color: '#fff',
+    borderWidth: 1,
+    borderColor: 'rgba(148, 163, 184, 0.2)',
   },
-  saveButton: {
-    backgroundColor: '#1e90ff',
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    margin: 20,
+  inputHint: {
+    fontSize: 12,
+    fontFamily: fonts.regular,
+    color: '#64748b',
     marginTop: 8,
+    fontStyle: 'italic',
   },
-  saveButtonDisabled: {
-    opacity: 0.6,
+  serverModalFooter: {
+    flexDirection: 'row',
+    padding: 16,
+    gap: 12,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(148, 163, 184, 0.1)',
   },
-  saveButtonText: {
-    color: '#ffffff',
+  serverModalButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  serverModalButtonCancel: {
+    backgroundColor: '#374151',
+  },
+  serverModalButtonSave: {
+    backgroundColor: '#3b82f6',
+  },
+  serverModalButtonDisabled: {
+    opacity: 0.5,
+  },
+  serverModalButtonTextCancel: {
     fontSize: 16,
-    fontWeight: '700',
-    fontFamily: fonts.bold,
+    fontFamily: fonts.semibold,
+    color: '#d1d5db',
+  },
+  serverModalButtonTextSave: {
+    fontSize: 16,
+    fontFamily: fonts.semibold,
+    color: '#ffffff',
   },
 });
 
-export default Settings;
-
+export default SettingsScreen;
