@@ -34,6 +34,7 @@ interface OnErrorData {
 import Slider from '@react-native-community/slider';
 import { storageService, databaseService } from '@/services';
 import { fonts } from '@/theme/fonts';
+import { AudioBooster } from '@/utils/AudioBooster';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -57,14 +58,16 @@ const PlayerScreen: React.FC = () => {
   const poster = Array.isArray(params.poster) ? params.poster[0] : params.poster || '';
 
   // Debug logs
-  console.log('🎬 Player Params:', { 
-    streamUrl, 
-    title, 
-    itemId, 
-    itemType,
-    hasUrl: !!streamUrl,
-    urlLength: streamUrl?.length 
-  });
+  useEffect(() => {
+    console.log('🎬 Player Params:', { 
+      streamUrl, 
+      title, 
+      itemId, 
+      itemType,
+      hasUrl: !!streamUrl,
+      urlLength: streamUrl?.length 
+    });
+  }, [streamUrl, title, itemId, itemType]);
 
   // Player State
   const [paused, setPaused] = useState(false); // Başlangıçta false, otomatik başlasın
@@ -90,6 +93,14 @@ const PlayerScreen: React.FC = () => {
   const [playbackRate, setPlaybackRate] = useState(1.0);
   const [audioBoostLevel, setAudioBoostLevel] = useState(1.0);
   const [volume, setVolume] = useState(1.0);
+  const [audioSessionId, setAudioSessionId] = useState<number | null>(null);
+
+  // Audio Boost Effect
+  useEffect(() => {
+    if (audioSessionId !== null) {
+      AudioBooster.setBoost(audioSessionId, audioBoostLevel);
+    }
+  }, [audioSessionId, audioBoostLevel]);
 
   // Tracks
   const [audioTracks, setAudioTracks] = useState<Track[]>([]);
@@ -113,6 +124,8 @@ const PlayerScreen: React.FC = () => {
       }
       // Save progress on exit
       saveProgress();
+      // Release Audio Booster
+      AudioBooster.release();
     };
   }, []);
 
@@ -132,9 +145,6 @@ const PlayerScreen: React.FC = () => {
         const boostLevel = parseFloat(savedAudioBoost);
         setAudioBoostLevel(boostLevel);
         setVolume(Math.min(boostLevel, 1.0)); // Video component max volume is 1.0
-        if (boostLevel > 1.0) {
-          console.log('⚠️ Audio boost seviyesi 1.0\'dan yüksek, yazılımsal boost uygulanamıyor');
-        }
       }
 
       // Check for resume point
@@ -210,7 +220,6 @@ const PlayerScreen: React.FC = () => {
       });
       
       lastSavedTime.current = currentTime;
-      console.log(`💾 Progress saved: ${Math.floor(progress)}% at ${Math.floor(currentTime)}s`);
     } catch (error) {
       console.error('Save progress error:', error);
     }
@@ -240,6 +249,10 @@ const PlayerScreen: React.FC = () => {
   };
 
   const handlePlayPause = () => {
+    if (!paused) {
+      // Durdurulduğunda ilerlemeyi kaydet
+      saveProgress();
+    }
     setPaused(!paused);
     showControlsTemporarily();
   };
@@ -296,11 +309,6 @@ const PlayerScreen: React.FC = () => {
   const handleProgress = (data: OnProgressData) => {
     if (!seeking) {
       setCurrentTime(data.currentTime);
-      
-      // Her 10 saniyede bir progress kaydet (throttle)
-      if (Math.abs(data.currentTime - lastSavedTime.current) >= 10) {
-        saveProgress();
-      }
     }
   };
 
@@ -370,9 +378,22 @@ const PlayerScreen: React.FC = () => {
             onPress={handleBack}
           >
             <Ionicons name="arrow-back" size={20} color="#fff" />
-            <Text style={styles.errorButtonText}>Geri Dön</Text>
-          </TouchableOpacity>
-        </View>
+            <Text style={styles.errorButtonText}>Geri Dön                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.modalItem}
+                onPress={() => {
+                  setSettingsVisible(false);
+                  handleOpenInVLC();
+                }}
+              >
+                <Ionicons name="open-outline" size={24} color="#3b82f6" />
+                <Text style={[styles.modalItemLabel, { color: '#3b82f6', marginLeft: 12 }]}>
+                  VLC'de Aç
+                </Text>
+              </TouchableOpacity>
+            </View>
       </View>
     );
   }
@@ -402,6 +423,15 @@ const PlayerScreen: React.FC = () => {
         onProgress={handleProgress}
         onBuffer={handleBuffer}
         onError={handleError}
+        // @ts-ignore - onAudioSessionId types are missing in current version
+        onAudioSessionId={(data: any) => {
+          setAudioSessionId((prevId) => {
+            if (prevId !== data.audioSessionId) {
+              return data.audioSessionId;
+            }
+            return prevId;
+          });
+        }}
         audioOutput="speaker"
       />
 
@@ -513,9 +543,18 @@ const PlayerScreen: React.FC = () => {
           <TouchableOpacity
             activeOpacity={1}
             onPress={(e) => e.stopPropagation()}
+            style={{ width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' }}
           >
             <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>Oynatıcı Ayarları</Text>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Oynatıcı Ayarları</Text>
+                <TouchableOpacity 
+                  style={styles.closeButton} 
+                  onPress={() => setSettingsVisible(false)}
+                >
+                  <Ionicons name="close" size={24} color="#fff" />
+                </TouchableOpacity>
+              </View>
 
               <TouchableOpacity
                 style={styles.modalItem}
@@ -549,15 +588,24 @@ const PlayerScreen: React.FC = () => {
               <TouchableOpacity
                 style={styles.modalItem}
                 onPress={() => {
-                  setSettingsVisible(false);
-                  handleOpenInVLC();
+                  const levels = [1.0, 1.5, 2.0, 3.0];
+                  // En yakın mevcut seviyeyi bul (kayan noktalı sayılar için)
+                  const currentIndex = levels.findIndex(l => Math.abs(l - audioBoostLevel) < 0.1);
+                  const nextLevel = levels[(currentIndex + 1) % levels.length];
+                  setAudioBoostLevel(nextLevel);
+                  // Anlık olarak kaydetmesek de olur, veya kaydedebiliriz.
+                  // Kullanıcı kalıcı olmasını isterse Settings'den yapar.
                 }}
               >
-                <Ionicons name="open-outline" size={24} color="#3b82f6" />
-                <Text style={[styles.modalItemLabel, { color: '#3b82f6', marginLeft: 12 }]}>
-                  VLC'de Aç
+                <Text style={styles.modalItemLabel}>Ses Güçlendirme 🔊</Text>
+                <Text style={styles.modalItemValue}>
+                  {audioBoostLevel <= 1.0 ? 'Kapalı' : 
+                   audioBoostLevel <= 1.5 ? 'Hafif' : 
+                   audioBoostLevel <= 2.0 ? 'Güçlü' : 'Maksimum'}
                 </Text>
               </TouchableOpacity>
+
+             
             </View>
           </TouchableOpacity>
         </TouchableOpacity>
@@ -578,9 +626,18 @@ const PlayerScreen: React.FC = () => {
           <TouchableOpacity
             activeOpacity={1}
             onPress={(e) => e.stopPropagation()}
+            style={{ width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' }}
           >
             <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>Ses & Altyazı</Text>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Ses & Altyazı</Text>
+                <TouchableOpacity 
+                  style={styles.closeButton} 
+                  onPress={() => setTracksVisible(false)}
+                >
+                  <Ionicons name="close" size={24} color="#fff" />
+                </TouchableOpacity>
+              </View>
 
               <ScrollView style={styles.modalScrollView} showsVerticalScrollIndicator={false}>
                 <Text style={styles.modalSectionTitle}>Ses Dili</Text>
@@ -791,7 +848,7 @@ const styles = StyleSheet.create({
   modalContent: {
     backgroundColor: '#1e293b',
     borderRadius: 24,
-    width: '92%',
+    width: '80%',
     height: '90%',
     maxWidth: 800, // Çok geniş tabletlerde aşırı yayılmayı önler ama telefonda tam genişlik sağlar
     padding: 24,
@@ -813,8 +870,22 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 28,
     fontFamily: fonts.bold,
-    marginBottom: 24,
     textAlign: 'center',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
+    position: 'relative',
+    width: '100%',
+  },
+  closeButton: {
+    position: 'absolute',
+    right: 0,
+    padding: 8,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 20,
   },
   modalSectionTitle: {
     color: '#94a3b8',

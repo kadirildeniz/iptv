@@ -98,8 +98,6 @@ const SeriesDetail: React.FC = () => {
                           fullBaseUrl = `${credentials.protocol || 'http'}://${baseUrl}`;
                       }
                       
-                      console.log('♻️ Rebuilding URLs from DB cache:', { fullBaseUrl });
-
                       episodesWithUrls = {};
                       Object.keys(episodes).forEach((seasonKey) => {
                           episodesWithUrls[seasonKey] = episodes[seasonKey].map((episode: any) => {
@@ -144,7 +142,6 @@ const SeriesDetail: React.FC = () => {
 
                   setSelectedSeason(seasons[0].season_number);
                   detailsLoaded = true;
-                  console.log('✅ Dizi detayları cache\'den (DB) yüklendi ve URLler güncellendi');
                 }
               } catch (parseError) {
                 console.warn('JSON parse hatası:', parseError);
@@ -191,13 +188,6 @@ const SeriesDetail: React.FC = () => {
                     
                     episodesWithUrls = {};
                     
-                    console.log('🔗 Building series URLs:', { 
-                        baseUrl, 
-                        fullBaseUrl, 
-                        protocol: credentials.protocol,
-                        username: credentials.username 
-                    });
-                    
                     Object.keys(apiSeriesInfo.episodes).forEach((seasonKey) => {
                         episodesWithUrls[seasonKey] = apiSeriesInfo.episodes[seasonKey].map((episode: any) => {
                             const streamUrl = buildSeriesUrl(
@@ -207,8 +197,6 @@ const SeriesDetail: React.FC = () => {
                                 episode.id,
                                 episode.container_extension || 'mp4'
                             );
-                            
-                            console.log(`📺 S${episode.season_number || seasonKey}E${episode.episode_num} URL:`, streamUrl);
                             
                             return {
                                 ...episode,

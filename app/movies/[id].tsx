@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { movieService, databaseService, database, type Movie } from '@/services';
+import { movieService, databaseService, database, storageService, type Movie } from '@/services';
 import { fonts } from '@/theme/fonts';
 import apiClient from '@/services/api/client';
 import { buildMovieUrl } from '@/services/api/endpoints';
@@ -55,7 +55,7 @@ const MovieDetail: React.FC = () => {
 
           if (dbMovie) {
             const credentials = await storageService.getCredentials();
-            const baseUrl = await storageService.getItem('baseUrl');
+            const baseUrl = await storageService.getItem<string>('baseUrl');
 
             let streamUrl = '';
             if (credentials && baseUrl) {
@@ -71,8 +71,6 @@ const MovieDetail: React.FC = () => {
                 dbMovie.streamId.toString(),
                 dbMovie.containerExtension || 'mp4'
               );
-              
-              console.log('🎬 Movie URL built from DB:', streamUrl);
             }
 
             movieData = {
@@ -126,7 +124,6 @@ const MovieDetail: React.FC = () => {
                 console.log('✅ Film detayları cache\'den (DB) yüklendi');
               }
             }
-          }
         } catch (dbError) {
           console.warn('Database read error:', dbError);
         }

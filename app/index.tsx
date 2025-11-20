@@ -1,6 +1,6 @@
 import CardComponent from '@/app/components/card-component';
 import { useRouter, Redirect } from 'expo-router';
-import { ImageBackground, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View, ActivityIndicator, useWindowDimensions, Alert } from 'react-native';
+import { ImageBackground, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View, ActivityIndicator, useWindowDimensions, Alert, Dimensions } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useState, useEffect } from 'react';
 import storageService from '@/services/storage.service';
@@ -9,9 +9,14 @@ import apiClient from '@/services/api/client';
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [shouldRedirect, setShouldRedirect] = useState(false);
+  
+  // Cihaz tipi belirleme
+  const isTablet = width >= 768 && width < 1024;
+  const isTV = width >= 1024;
+  const isPhone = width < 768;
   
   // Ayrı ayrı sync durumları
   const [syncing, setSyncing] = useState({
@@ -147,16 +152,16 @@ export default function HomeScreen() {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          <View style={[styles.cardContainer, { flexDirection: width > 768 ? 'row' : 'column' }]}>
+          <View style={[styles.cardContainer, { flexDirection: isPhone ? 'column' : 'row' }]}>
             
             {/* CANLI TV KARTI */}
             <View
               style={[
                 styles.cardWrapper,
                 {
-                  width: width > 768 ? '32%' : '100%',
-                  marginRight: width > 768 ? 16 : 0,
-                  marginBottom: width > 768 ? 0 : 16,
+                  width: isPhone ? '100%' : isTablet ? '32%' : '32%',
+                  marginRight: isPhone ? 0 : 12,
+                  marginBottom: isPhone ? 16 : 0,
                 },
               ]}
             >
@@ -203,9 +208,9 @@ export default function HomeScreen() {
               style={[
                 styles.cardWrapper,
                 {
-                  width: width > 768 ? '32%' : '100%',
-                  marginRight: width > 768 ? 16 : 0,
-                  marginBottom: width > 768 ? 0 : 16,
+                  width: isPhone ? '100%' : isTablet ? '32%' : '32%',
+                  marginRight: isPhone ? 0 : 12,
+                  marginBottom: isPhone ? 16 : 0,
                 },
               ]}
             >
@@ -252,8 +257,8 @@ export default function HomeScreen() {
               style={[
                 styles.cardWrapper,
                 {
-                  width: width > 768 ? '32%' : '100%',
-                  marginBottom: width > 768 ? 0 : 16,
+                  width: isPhone ? '100%' : isTablet ? '32%' : '32%',
+                  marginBottom: isPhone ? 16 : 0,
                 },
               ]}
             >
@@ -318,9 +323,8 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    width: Platform.OS === 'web' ? '100%' : '100%',
+    width: '100%',
     height: '100%',
-    paddingHorizontal: Platform.OS === 'web' ? 100 : 0,
   },
   safeArea: {
     flex: 1,
@@ -330,16 +334,12 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'web' ? 40 : 20,
-    paddingBottom: 20,
-    ...(Platform.OS === 'web' && {
-      maxWidth: 1400,
-      alignSelf: 'center',
-      width: '100%',
-    }),
+    paddingTop: Platform.OS === 'android' ? 16 : 20,
+    paddingBottom: 12,
   },
   headerContent: {
     flex: 1,
+    paddingRight: 12,
   },
   iconButtons: {
     flexDirection: 'row',
@@ -357,31 +357,29 @@ const styles = StyleSheet.create({
   },
   text: {
     color: '#fff',
-    fontSize: 34,
-    fontWeight: 'semibold',
-    letterSpacing: 1.5,
+    fontSize: Platform.select({ android: 28, ios: 30, default: 34 }),
+    fontWeight: '600',
+    letterSpacing: 1,
   },
   textDescription: {
     color: '#fff',
-    fontSize: 13,
+    fontSize: Platform.select({ android: 12, ios: 13, default: 14 }),
     fontWeight: 'normal',
-    marginTop: 10,
-    opacity: 0.9,
+    marginTop: 6,
+    opacity: 0.85,
+    lineHeight: 18,
   },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 20,
-    paddingBottom: 40,
-    ...(Platform.OS === 'web' && {
-      maxWidth: 1400,
-      alignSelf: 'center',
-      width: '100%',
-    }),
+    paddingHorizontal: 16,
+    paddingBottom: 80, // Daha fazla boşluk
+    flexGrow: 1,
   },
   cardContainer: {
     width: '100%',
+    flexGrow: 1,
   },
   cardWrapper: {
     marginBottom: 0,
@@ -392,7 +390,7 @@ const styles = StyleSheet.create({
   },
   card: {
     width: '100%',
-    height: Platform.OS === 'web' ? 280 : 200,
+    height: Math.min(Dimensions.get('window').height * 0.2, 180), // Ekran yüksekliğinin %20'si max 180px
     justifyContent: 'flex-end',
   },
   updateButton: {
@@ -401,7 +399,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: 'rgba(99, 102, 241, 0.9)',
     borderRadius: 12,
-    paddingVertical: 12,
+    paddingVertical: 14,
     paddingHorizontal: 16,
     marginTop: 12,
     shadowColor: '#6366f1',
@@ -423,14 +421,21 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   infoContainer: {
-    marginTop: 32,
-    paddingHorizontal: 12,
+    marginTop: 24,
+    paddingHorizontal: 8,
+    paddingVertical: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   infoText: {
-    color: 'rgba(255, 255, 255, 0.6)',
+    color: 'rgba(255, 255, 255, 0.7)',
     fontSize: 12,
-    marginBottom: 6,
-    textAlign: 'center',
+    marginBottom: 8,
+    textAlign: 'left',
+    lineHeight: 18,
+    paddingLeft: 4,
   },
   loadingContainer: {
     flex: 1,
