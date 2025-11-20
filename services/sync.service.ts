@@ -3,382 +3,419 @@ import storageService from './storage.service';
 import movieService from './movie.service';
 import seriesService from './series.service';
 import channelService from './channel.service';
-import type { Movie as ApiMovie, Series as ApiSeries, LiveStream, VodStream } from './api/types';
+import LiveCategoryModel from './database/models/LiveCategory';
+import MovieCategoryModel from './database/models/MovieCategory';
+import SeriesCategoryModel from './database/models/SeriesCategory';
 import MovieModel from './database/models/Movie';
 import SeriesModel from './database/models/Series';
 import ChannelModel from './database/models/Channel';
 
-const SYNC_KEYS = {
-  MOVIES: 'LAST_SYNC_MOVIES',
-  SERIES: 'LAST_SYNC_SERIES',
-  CHANNELS: 'LAST_SYNC_CHANNELS',
-  EPG: 'LAST_SYNC_EPG',
+type SyncType = 'movies' | 'series' | 'channels';
+type SyncProgress = {
+  type: string;
+  current: number;
+  total: number;
+  message: string;
 };
 
-// Senkronizasyon eşikleri (saat cinsinden)
-const SYNC_THRESHOLDS = {
-  MOVIES: 24, // 24 saat
-  SERIES: 24, // 24 saat
-  CHANNELS: 12, // 12 saat
-  EPG: 1, // 1 saat
-};
-
-type SyncType = 'movies' | 'series' | 'channels' | 'epg';
+// Yardımcı fonksiyon: Bekleme süresi (Artık sadece lazy load'da kullanılabilir ama burada tutuyorum)
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 class SyncService {
-  private isSyncing: Map<SyncType, boolean> = new Map();
+  private isSyncing = new Map<SyncType, boolean>();
+  private syncProgressCallback: ((progress: SyncProgress) => void) | null = null;
 
-  /**
-   * Senkronizasyon gerekip gerekmediğini kontrol et ve gerekirse çalıştır
-   */
-  async checkAndRunSync(type: SyncType): Promise<void> {
-    // Eğer zaten senkronizasyon yapılıyorsa, yeni bir tane başlatma
-    if (this.isSyncing.get(type)) {
-      console.log(`⏳ ${type} sync already in progress, skipping...`);
-      return;
+  setSyncProgressCallback(callback: (progress: SyncProgress) => void) {
+    this.syncProgressCallback = callback;
+  }
+
+  removeSyncProgressCallback() {
+    this.syncProgressCallback = null;
+  }
+
+  private reportProgress(progress: SyncProgress) {
+    if (this.syncProgressCallback) {
+      this.syncProgressCallback(progress);
     }
+  }
 
+  // Tekil sync fonksiyonları (Dışarıdan çağrılabilir)
+  
+  async syncChannelsOnly(): Promise<void> {
+    if (this.isSyncing.get('channels')) throw new Error('Canlı TV güncellemesi zaten devam ediyor');
+    this.isSyncing.set('channels', true);
+    
     try {
-      const lastSyncKey = SYNC_KEYS[type.toUpperCase() as keyof typeof SYNC_KEYS];
-      const lastSync = await storageService.getItem<string>(lastSyncKey);
-      const threshold = SYNC_THRESHOLDS[type.toUpperCase() as keyof typeof SYNC_THRESHOLDS];
-
-      if (lastSync) {
-        const lastSyncTime = new Date(lastSync).getTime();
-        const now = Date.now();
-        const hoursSinceSync = (now - lastSyncTime) / (1000 * 60 * 60);
-
-        if (hoursSinceSync < threshold) {
-          console.log(`✅ ${type} sync not needed (${hoursSinceSync.toFixed(1)}h < ${threshold}h)`);
-          return;
-        }
-      }
-
-      // Senkronizasyon gerekiyor
-      console.log(`🔄 Starting ${type} sync...`);
-      this.isSyncing.set(type, true);
-
-      switch (type) {
-        case 'movies':
-          await this.syncMovies();
-          break;
-        case 'series':
-          await this.syncSeries();
-          break;
-        case 'channels':
-          await this.syncChannels();
-          break;
-        case 'epg':
-          await this.syncEPG();
-          break;
-      }
-
-      // Başarılı senkronizasyon sonrası zaman damgasını güncelle
-      await storageService.setItem(lastSyncKey, new Date().toISOString());
-      console.log(`✅ ${type} sync completed`);
-    } catch (error) {
-      console.error(`❌ ${type} sync error:`, error);
+      this.reportProgress({ type: 'channels', current: 0, total: 2, message: 'Canlı TV kategorileri güncelleniyor...' });
+      await this.syncLiveCategories();
+      
+      this.reportProgress({ type: 'channels', current: 1, total: 2, message: 'Canlı TV kanalları güncelleniyor...' });
+      await this.syncChannels();
+      
+      console.log('✅ Canlı TV güncellemesi tamamlandı');
     } finally {
-      this.isSyncing.set(type, false);
+      this.isSyncing.set('channels', false);
     }
   }
 
-  /**
-   * Filmleri senkronize et (Delta bulma ve batch işlem)
-   */
-  private async syncMovies(): Promise<void> {
-    if (!database) {
-      console.warn('⚠️ Database not initialized, skipping movies sync');
-      return;
-    }
+  async syncMoviesOnly(): Promise<void> {
+    if (this.isSyncing.get('movies')) throw new Error('Film güncellemesi zaten devam ediyor');
+    this.isSyncing.set('movies', true);
 
     try {
-      // 1. API'den tüm filmleri çek (categoryId olmadan tüm filmler)
-      console.log('📡 Fetching movies from API...');
-      const apiMovies = await movieService.getMovies(); // categoryId olmadan tüm filmler
-      console.log(`📦 Fetched ${apiMovies.length} movies from API`);
-
-      // 2. WatermelonDB'den mevcut film ID'lerini çek
-      if (!database) {
-        console.warn('⚠️ Database not available');
-        return;
-      }
-
-      const localMovies = await database
-        .get<MovieModel>('movies')
-        .query()
-        .fetch();
-      const localMovieIds = new Set(localMovies.map(m => m.streamId.toString()));
-      console.log(`💾 Found ${localMovieIds.size} movies in local database`);
-
-      // 3. Delta bulma
-      const apiMovieIds = new Set(apiMovies.map(m => m.stream_id.toString()));
+      this.reportProgress({ type: 'movies', current: 0, total: 2, message: 'Film kategorileri güncelleniyor...' });
+      await this.syncMovieCategories();
       
-      const moviesToCreate = apiMovies.filter(
-        m => !localMovieIds.has(m.stream_id.toString())
-      );
-      const moviesToDelete = localMovies.filter(
-        m => !apiMovieIds.has(m.streamId.toString())
-      );
-
-      console.log(`➕ ${moviesToCreate.length} movies to create`);
-      console.log(`➖ ${moviesToDelete.length} movies to delete`);
-
-      if (moviesToCreate.length === 0 && moviesToDelete.length === 0) {
-        console.log('✅ Movies are already in sync');
-        return;
-      }
-
-      // 4. Batch işlemler hazırla
-      if (!database) return;
+      this.reportProgress({ type: 'movies', current: 1, total: 2, message: 'Filmler indiriliyor (Bulk)...' });
+      await this.syncMovies();
       
-      const db = database; // TypeScript için local variable
-      await db.write(async () => {
+      console.log('✅ Film güncellemesi tamamlandı');
+    } finally {
+      this.isSyncing.set('movies', false);
+    }
+  }
+
+  async syncSeriesOnly(): Promise<void> {
+    if (this.isSyncing.get('series')) throw new Error('Dizi güncellemesi zaten devam ediyor');
+    this.isSyncing.set('series', true);
+
+    try {
+      this.reportProgress({ type: 'series', current: 0, total: 2, message: 'Dizi kategorileri güncelleniyor...' });
+      await this.syncSeriesCategories();
+      
+      this.reportProgress({ type: 'series', current: 1, total: 2, message: 'Diziler indiriliyor (Bulk)...' });
+      await this.syncSeries();
+      
+      console.log('✅ Dizi güncellemesi tamamlandı');
+    } finally {
+      this.isSyncing.set('series', false);
+    }
+  }
+
+  // --- Alt Fonksiyonlar ---
+
+  private async syncLiveCategories(): Promise<void> {
+    if (!database) throw new Error('Database yok');
+
+    try {
+      console.log('📡 Canlı TV kategorileri API\'den çekiliyor...');
+      const apiCategories = await channelService.getCategories();
+      
+      const uniqueMap = new Map();
+      apiCategories.forEach((cat: any) => {
+        if (!uniqueMap.has(cat.category_id)) {
+          uniqueMap.set(cat.category_id, cat);
+        }
+      });
+      const uniqueCategories = Array.from(uniqueMap.values());
+
+      const existingCategories = await database.get<LiveCategoryModel>('live_categories').query().fetch();
+      const existingIds = new Set(existingCategories.map((c) => c.categoryId));
+
+      await database.write(async () => {
         const batchActions: any[] = [];
-
-        // Yeni filmleri ekle
-        for (const apiMovie of moviesToCreate) {
-          batchActions.push(
-            db.get<MovieModel>('movies').prepareCreate((movie) => {
-              movie.streamId = apiMovie.stream_id;
-              movie.name = apiMovie.name;
-              movie.streamType = apiMovie.stream_type;
-              movie.streamIcon = apiMovie.stream_icon || undefined;
-              movie.rating = apiMovie.rating || undefined;
-              movie.rating5based = apiMovie.rating_5based || undefined;
-              movie.categoryId = apiMovie.category_id || '';
-              movie.categoryIds = JSON.stringify(apiMovie.category_ids || []);
-              movie.added = apiMovie.added || undefined;
-              movie.containerExtension = apiMovie.container_extension || undefined;
-              movie.customSid = apiMovie.custom_sid || undefined;
-              movie.directSource = apiMovie.direct_source || undefined;
-              movie.cachedAt = new Date();
-            })
-          );
+        for (const cat of uniqueCategories as any[]) {
+          if (!existingIds.has(cat.category_id)) {
+            batchActions.push(
+              database!.get('live_categories').prepareCreate((category: any) => {
+                category.categoryId = cat.category_id;
+                category.categoryName = cat.category_name;
+                category.cachedAt = Date.now();
+              })
+            );
+          }
         }
-
-        // Silinecek filmleri işaretle
-        for (const movieToDelete of moviesToDelete) {
-          batchActions.push(movieToDelete.prepareDestroyPermanently());
-        }
-
-        // 5. Atomic batch işlem
         if (batchActions.length > 0) {
-          await db.batch(...batchActions);
-          console.log(`✅ Batch operation completed: ${batchActions.length} changes`);
+          await database!.batch(...batchActions);
         }
       });
     } catch (error) {
-      console.error('❌ Movies sync error:', error);
+      console.error('❌ Canlı TV kategorileri sync hatası:', error);
       throw error;
     }
   }
 
-  /**
-   * Dizileri senkronize et
-   */
-  private async syncSeries(): Promise<void> {
-    if (!database) {
-      console.warn('⚠️ Database not initialized, skipping series sync');
-      return;
-    }
+  private async syncMovieCategories(): Promise<void> {
+    if (!database) throw new Error('Database yok');
 
     try {
-      // 1. API'den tüm dizileri çek
-      console.log('📡 Fetching series from API...');
-      const apiSeries = await seriesService.getSeries();
-      console.log(`📦 Fetched ${apiSeries.length} series from API`);
-
-      // 2. WatermelonDB'den mevcut dizi ID'lerini çek
-      if (!database) {
-        console.warn('⚠️ Database not available');
-        return;
-      }
-
-      const localSeries = await database
-        .get<SeriesModel>('series')
-        .query()
-        .fetch();
-      const localSeriesIds = new Set(localSeries.map(s => s.seriesId.toString()));
-      console.log(`💾 Found ${localSeriesIds.size} series in local database`);
-
-      // 3. Delta bulma
-      const apiSeriesIds = new Set(apiSeries.map(s => s.series_id.toString()));
+      console.log('📡 Film kategorileri API\'den çekiliyor...');
+      const apiCategories = await movieService.getCategories();
       
-      const seriesToCreate = apiSeries.filter(
-        s => !localSeriesIds.has(s.series_id.toString())
-      );
-      const seriesToDelete = localSeries.filter(
-        s => !apiSeriesIds.has(s.seriesId.toString())
-      );
+      const uniqueMap = new Map();
+      apiCategories.forEach((cat: any) => {
+        if (!uniqueMap.has(cat.category_id)) {
+          uniqueMap.set(cat.category_id, cat);
+        }
+      });
+      const uniqueCategories = Array.from(uniqueMap.values());
 
-      console.log(`➕ ${seriesToCreate.length} series to create`);
-      console.log(`➖ ${seriesToDelete.length} series to delete`);
+      const existingCategories = await database.get<MovieCategoryModel>('movie_categories').query().fetch();
+      const existingIds = new Set(existingCategories.map((c) => c.categoryId));
 
-      if (seriesToCreate.length === 0 && seriesToDelete.length === 0) {
-        console.log('✅ Series are already in sync');
-        return;
-      }
-
-      // 4. Batch işlemler hazırla
-      if (!database) return;
-      
-      const db = database; // TypeScript için local variable
-      await db.write(async () => {
+      await database.write(async () => {
         const batchActions: any[] = [];
-
-        // Yeni dizileri ekle
-        for (const apiSerie of seriesToCreate) {
-          batchActions.push(
-            db.get<SeriesModel>('series').prepareCreate((series) => {
-              series.seriesId = apiSerie.series_id;
-              series.name = apiSerie.name;
-              series.cover = apiSerie.cover || undefined;
-              series.plot = apiSerie.plot || undefined;
-              series.cast = apiSerie.cast || undefined;
-              series.director = apiSerie.director || undefined;
-              series.genre = apiSerie.genre || undefined;
-              series.releaseDate = apiSerie.releaseDate || undefined;
-              series.lastModified = apiSerie.last_modified ? new Date(apiSerie.last_modified) : undefined;
-              series.rating = apiSerie.rating || undefined;
-              series.rating5based = apiSerie.rating_5based || undefined;
-              series.backdropPath = JSON.stringify(apiSerie.backdrop_path || []);
-              series.youtubeTrailer = apiSerie.youtube_trailer || undefined;
-              series.episodeRunTime = apiSerie.episode_run_time || undefined;
-              series.categoryId = apiSerie.category_id || '';
-              series.categoryIds = JSON.stringify(apiSerie.category_ids || []);
-              series.cachedAt = new Date();
-            })
-          );
+        for (const cat of uniqueCategories as any[]) {
+          if (!existingIds.has(cat.category_id)) {
+            batchActions.push(
+              database!.get('movie_categories').prepareCreate((category: any) => {
+                category.categoryId = cat.category_id;
+                category.categoryName = cat.category_name;
+                category.cachedAt = Date.now();
+              })
+            );
+          }
         }
-
-        // Silinecek dizileri işaretle
-        for (const seriesToDeleteItem of seriesToDelete) {
-          batchActions.push(seriesToDeleteItem.prepareDestroyPermanently());
-        }
-
-        // 5. Atomic batch işlem
         if (batchActions.length > 0) {
-          await db.batch(...batchActions);
-          console.log(`✅ Batch operation completed: ${batchActions.length} changes`);
+          await database!.batch(...batchActions);
         }
       });
     } catch (error) {
-      console.error('❌ Series sync error:', error);
+      console.error('❌ Film kategorileri sync hatası:', error);
       throw error;
     }
   }
 
-  /**
-   * Kanalları senkronize et
-   */
+  private async syncSeriesCategories(): Promise<void> {
+    if (!database) throw new Error('Database yok');
+
+    try {
+      console.log('📡 Dizi kategorileri API\'den çekiliyor...');
+      const apiCategories = await seriesService.getCategories();
+      
+      const uniqueMap = new Map();
+      apiCategories.forEach((cat: any) => {
+        if (!uniqueMap.has(cat.category_id)) {
+          uniqueMap.set(cat.category_id, cat);
+        }
+      });
+      const uniqueCategories = Array.from(uniqueMap.values());
+
+      const existingCategories = await database.get<SeriesCategoryModel>('series_categories').query().fetch();
+      const existingIds = new Set(existingCategories.map((c) => c.categoryId));
+
+      await database.write(async () => {
+        const batchActions: any[] = [];
+        for (const cat of uniqueCategories as any[]) {
+          if (!existingIds.has(cat.category_id)) {
+            batchActions.push(
+              database!.get('series_categories').prepareCreate((category: any) => {
+                category.categoryId = cat.category_id;
+                category.categoryName = cat.category_name;
+                category.cachedAt = Date.now();
+              })
+            );
+          }
+        }
+        if (batchActions.length > 0) {
+          await database!.batch(...batchActions);
+        }
+      });
+    } catch (error) {
+      console.error('❌ Dizi kategorileri sync hatası:', error);
+      throw error;
+    }
+  }
+
   private async syncChannels(): Promise<void> {
-    if (!database) {
-      console.warn('⚠️ Database not initialized, skipping channels sync');
-      return;
-    }
+    if (!database) throw new Error('Database yok');
 
     try {
-      // 1. API'den tüm kanalları çek
-      console.log('📡 Fetching channels from API...');
+      console.log('📡 Kanallar API\'den çekiliyor...');
       const apiChannels = await channelService.getChannels();
-      console.log(`📦 Fetched ${apiChannels.length} channels from API`);
+      
+      const localChannels = await database.get<ChannelModel>('channels').query().fetch();
+      const localChannelIds = new Set(localChannels.map((c) => c.streamId.toString()));
 
-      // 2. WatermelonDB'den mevcut kanal ID'lerini çek
-      if (!database) {
-        console.warn('⚠️ Database not available');
+      const channelsToCreate = apiChannels.filter((c) => !localChannelIds.has(c.stream_id.toString()));
+      console.log(`➕ ${channelsToCreate.length} yeni kanal eklenecek`);
+
+      if (channelsToCreate.length === 0) {
+        console.log('✅ Kanallar zaten güncel');
         return;
       }
 
-      const localChannels = await database
-        .get<ChannelModel>('channels')
-        .query()
-        .fetch();
-      const localChannelIds = new Set(localChannels.map(c => c.streamId.toString()));
-      console.log(`💾 Found ${localChannelIds.size} channels in local database`);
+      const batchOps: any[] = [];
+      const channelsCollection = database.get<ChannelModel>('channels');
 
-      // 3. Delta bulma
-      const apiChannelIds = new Set(apiChannels.map(c => c.stream_id.toString()));
-      
-      const channelsToCreate = apiChannels.filter(
-        c => !localChannelIds.has(c.stream_id.toString())
-      );
-      const channelsToDelete = localChannels.filter(
-        c => !apiChannelIds.has(c.streamId.toString())
-      );
-
-      console.log(`➕ ${channelsToCreate.length} channels to create`);
-      console.log(`➖ ${channelsToDelete.length} channels to delete`);
-
-      if (channelsToCreate.length === 0 && channelsToDelete.length === 0) {
-        console.log('✅ Channels are already in sync');
-        return;
+      for (const apiChannel of channelsToCreate) {
+        batchOps.push(
+          channelsCollection.prepareCreate((channel) => {
+            channel.streamId = apiChannel.stream_id;
+            channel.name = apiChannel.name;
+            channel.streamType = apiChannel.stream_type;
+            channel.streamIcon = apiChannel.stream_icon || undefined;
+            channel.epgChannelId = apiChannel.epg_channel_id || undefined;
+            channel.categoryId = apiChannel.category_id || '';
+            channel.categoryIds = JSON.stringify(apiChannel.category_ids || []);
+            channel.added = apiChannel.added || undefined;
+            channel.customSid = apiChannel.custom_sid || undefined;
+            channel.tvArchive = apiChannel.tv_archive || undefined;
+            channel.directSource = apiChannel.direct_source || undefined;
+            channel.tvArchiveDuration = apiChannel.tv_archive_duration || undefined;
+            channel.thumbnail = apiChannel.thumbnail || undefined;
+            channel.cachedAt = new Date();
+          })
+        );
       }
 
-      // 4. Batch işlemler hazırla
-      if (!database) return;
-      
-      const db = database; // TypeScript için local variable
-      await db.write(async () => {
-        const batchActions: any[] = [];
+      const CHUNK_SIZE = 500;
+      let processed = 0;
 
-        // Yeni kanalları ekle
-        for (const apiChannel of channelsToCreate) {
-          batchActions.push(
-            db.get<ChannelModel>('channels').prepareCreate((channel) => {
-              channel.streamId = apiChannel.stream_id;
-              channel.name = apiChannel.name;
-              channel.streamType = apiChannel.stream_type;
-              channel.streamIcon = apiChannel.stream_icon || undefined;
-              channel.epgChannelId = apiChannel.epg_channel_id || undefined;
-              channel.categoryId = apiChannel.category_id || '';
-              channel.categoryIds = JSON.stringify(apiChannel.category_ids || []);
-              channel.added = apiChannel.added || undefined;
-              channel.customSid = apiChannel.custom_sid || undefined;
-              channel.tvArchive = apiChannel.tv_archive || undefined;
-              channel.directSource = apiChannel.direct_source || undefined;
-              channel.tvArchiveDuration = apiChannel.tv_archive_duration || undefined;
-              channel.thumbnail = apiChannel.thumbnail || undefined;
-              channel.cachedAt = new Date();
-            })
-          );
-        }
+      while (batchOps.length > 0) {
+        const chunk = batchOps.splice(0, CHUNK_SIZE);
+        
+        await database.write(async () => {
+          await database!.batch(chunk);
+        });
 
-        // Silinecek kanalları işaretle
-        for (const channelToDelete of channelsToDelete) {
-          batchActions.push(channelToDelete.prepareDestroyPermanently());
-        }
+        processed += chunk.length;
+        console.log(`💾 ${processed} / ${channelsToCreate.length} kanal kaydedildi...`);
+      }
+      console.log('✅ Tüm kanallar başarıyla kaydedildi');
 
-        // 5. Atomic batch işlem
-        if (batchActions.length > 0) {
-          await db.batch(...batchActions);
-          console.log(`✅ Batch operation completed: ${batchActions.length} changes`);
-        }
-      });
     } catch (error) {
-      console.error('❌ Channels sync error:', error);
+      console.error('❌ Kanallar sync hatası:', error);
       throw error;
     }
   }
 
-  /**
-   * EPG programlarını senkronize et (basit versiyon)
-   */
-  private async syncEPG(): Promise<void> {
-    // EPG senkronizasyonu daha karmaşık, şimdilik placeholder
-    console.log('📡 EPG sync not implemented yet');
+  private async syncMovies(): Promise<void> {
+    if (!database) throw new Error('Database yok');
+
+    try {
+      console.log('📡 Filmler API\'den çekiliyor (Bulk)...');
+      const apiMovies = await movieService.getMovies();
+      console.log(`📦 ${apiMovies.length} film alındı`);
+      
+      const localMovies = await database.get<MovieModel>('movies').query().fetch();
+      const localMovieIds = new Set(localMovies.map((m) => m.streamId.toString()));
+
+      const moviesToCreate = apiMovies.filter((m) => !localMovieIds.has(m.stream_id.toString()));
+      console.log(`➕ ${moviesToCreate.length} yeni film eklenecek`);
+
+      if (moviesToCreate.length === 0) {
+        console.log('✅ Filmler zaten güncel');
+        return;
+      }
+
+      const batchOps: any[] = [];
+      const moviesCollection = database.get<MovieModel>('movies');
+
+      for (const apiMovie of moviesToCreate) {
+        batchOps.push(
+          moviesCollection.prepareCreate((movie) => {
+            movie.streamId = apiMovie.stream_id;
+            movie.name = apiMovie.name;
+            movie.streamType = apiMovie.stream_type;
+            movie.streamIcon = apiMovie.stream_icon || undefined;
+            movie.rating = apiMovie.rating || undefined;
+            movie.rating5based = apiMovie.rating_5based || undefined;
+            movie.categoryId = apiMovie.category_id || '';
+            movie.categoryIds = JSON.stringify(apiMovie.category_ids || []);
+            movie.added = apiMovie.added || undefined;
+            movie.containerExtension = apiMovie.container_extension || undefined;
+            movie.customSid = apiMovie.custom_sid || undefined;
+            movie.directSource = apiMovie.direct_source || undefined;
+            movie.cachedAt = new Date();
+          })
+        );
+      }
+
+      const CHUNK_SIZE = 500;
+      let processed = 0;
+
+      while (batchOps.length > 0) {
+        const chunk = batchOps.splice(0, CHUNK_SIZE);
+        
+        await database.write(async () => {
+          await database!.batch(chunk);
+        });
+
+        processed += chunk.length;
+        console.log(`💾 ${processed} / ${moviesToCreate.length} film kaydedildi...`);
+      }
+      console.log('✅ Tüm filmler başarıyla kaydedildi');
+
+    } catch (error) {
+      console.error('❌ Filmler sync hatası:', error);
+      throw error;
+    }
   }
 
-  /**
-   * Manuel senkronizasyon tetikle (force sync)
-   */
-  async forceSync(type: SyncType): Promise<void> {
-    // Zaman damgasını sıfırla ve senkronizasyonu zorla
-    const lastSyncKey = SYNC_KEYS[type.toUpperCase() as keyof typeof SYNC_KEYS];
-    await storageService.removeItem(lastSyncKey);
-    await this.checkAndRunSync(type);
+  private async syncSeries(): Promise<void> {
+    if (!database) throw new Error('Database yok');
+
+    try {
+      console.log('📡 Diziler API\'den çekiliyor (Bulk)...');
+      // 1. Tek büyük istek
+      const apiSeries = await seriesService.getSeries();
+      console.log(`📦 ${apiSeries.length} dizi alındı`);
+      
+      // 2. Mevcut verileri kontrol et
+      const localSeries = await database.get<SeriesModel>('series').query().fetch();
+      const localSeriesIds = new Set(localSeries.map((s) => s.seriesId.toString()));
+
+      const seriesToCreate = apiSeries.filter((s) => !localSeriesIds.has(s.series_id.toString()));
+      console.log(`➕ ${seriesToCreate.length} yeni dizi eklenecek`);
+
+      if (seriesToCreate.length === 0) {
+        console.log('✅ Diziler zaten güncel');
+        return;
+      }
+
+      // 3. Batch işlemleri hazırla
+      const batchOps: any[] = [];
+      const seriesCollection = database.get<SeriesModel>('series');
+
+      for (const apiSerie of seriesToCreate) {
+        batchOps.push(
+          seriesCollection.prepareCreate((series) => {
+            series.seriesId = apiSerie.series_id;
+            series.name = apiSerie.name;
+            series.cover = apiSerie.cover || undefined;
+            series.plot = apiSerie.plot || undefined;
+            series.cast = apiSerie.cast || undefined;
+            series.director = apiSerie.director || undefined;
+            series.genre = apiSerie.genre || undefined;
+            series.releaseDate = apiSerie.releaseDate || undefined;
+            series.lastModified = apiSerie.last_modified ? new Date(apiSerie.last_modified) : undefined;
+            series.rating = apiSerie.rating || undefined;
+            series.rating5based = apiSerie.rating_5based || undefined;
+            series.backdropPath = JSON.stringify(apiSerie.backdrop_path || []);
+            series.youtubeTrailer = apiSerie.youtube_trailer || undefined;
+            series.episodeRunTime = apiSerie.episode_run_time || undefined;
+            series.categoryId = apiSerie.category_id || '';
+            series.categoryIds = JSON.stringify(apiSerie.category_ids || []);
+            // Detaylar BOŞ bırakılıyor - Lazy Load yapılacak
+            series.seasons = undefined;
+            series.episodes = undefined;
+            series.cachedAt = new Date();
+          })
+        );
+      }
+
+      // 4. Chunking ile kaydet
+      const CHUNK_SIZE = 500;
+      let processed = 0;
+
+      while (batchOps.length > 0) {
+        const chunk = batchOps.splice(0, CHUNK_SIZE);
+        
+        await database.write(async () => {
+          await database!.batch(chunk);
+        });
+
+        processed += chunk.length;
+        console.log(`💾 ${processed} / ${seriesToCreate.length} dizi kaydedildi...`);
+      }
+      console.log('✅ Tüm diziler başarıyla kaydedildi');
+
+    } catch (error) {
+      console.error('❌ Diziler sync hatası:', error);
+      throw error;
+    }
   }
 }
 
 export default new SyncService();
-

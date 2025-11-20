@@ -256,7 +256,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                     }}
                   />
                 </div>
-              ) : (
+              ) : streamUrl ? (
                 <Video
                   ref={videoRef}
                   style={[styles.video, isFullscreen && styles.fullscreenVideo]}
@@ -291,6 +291,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                     setIsLoading(false);
                   }}
                 />
+              ) : (
+                <View style={styles.placeholderContainer}>
+                  <Text style={styles.placeholderText}>⚠️ Stream URL bulunamadı</Text>
+                  <Text style={styles.placeholderSubtext}>Kanal bilgileri yükleniyor...</Text>
+                </View>
               )}
               
               {/* Loading Overlay */}

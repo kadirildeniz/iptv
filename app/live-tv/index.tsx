@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { useFocusEffect } from '@react-navigation/native';
 import { View, StyleSheet, SafeAreaView, Platform, Text, ActivityIndicator, TouchableOpacity, useWindowDimensions, TextInput, FlatList } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useRouter, Redirect } from 'expo-router';
@@ -8,10 +7,11 @@ import CategoryList from '@/app/components/CategoryList';
 import ChannelCard from '@/app/components/ChannelCard';
 import VideoPlayer from '@/app/components/VideoPlayer';
 import channelService from '@/services/channel.service';
-import { databaseService, storageService, syncService, database } from '@/services';
+import { databaseService, storageService, database } from '@/services';
 import apiClient from '@/services/api/client';
-import type { LiveCategory, Channel as ApiChannel } from '@/services';
+import { buildStreamUrl } from '@/services/api/endpoints';
 import ChannelModel from '@/services/database/models/Channel';
+import LiveCategoryModel from '@/services/database/models/LiveCategory';
 
 interface Channel {
   id: string;
@@ -43,57 +43,38 @@ const LiveTv: React.FC = () => {
   const [loadingEPG, setLoadingEPG] = useState(false);
   const [epgData, setEpgData] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [isVideoFullScreen, setIsVideoFullScreen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [shouldRedirect, setShouldRedirect] = useState(false);
 
-  // API'den kategorileri çek
   useEffect(() => {
     checkAuthentication();
   }, []);
 
-  // Sayfa her açıldığında credentials kontrolü yap
-  useFocusEffect(
-    useCallback(() => {
-      checkAuthentication();
-    }, [])
-  );
-
   const checkAuthentication = async () => {
     try {
-      console.log('🔍 Checking authentication for Live TV...');
+      console.log('🔍 Kimlik doğrulaması kontrol ediliyor...');
       const credentials = await storageService.getCredentials();
-      
+
       if (credentials) {
-        console.log('✅ User is authenticated');
-        // API client'a credentials'ı yükle
+        console.log('✅ Kullanıcı kimliği doğrulandı');
         await apiClient.loadCredentials();
-        setIsAuthenticated(true);
         loadCategories();
         loadFavorites();
-        
-        // Arka planda sync tetikle (UI'ı bloke etmeden)
-        syncService.checkAndRunSync('channels').catch(err => {
-          console.error('Background sync error:', err);
-        });
       } else {
-        console.log('❌ User not authenticated');
-        setIsAuthenticated(false);
+        console.log('❌ Kullanıcı kimliği doğrulanamadı');
         setShouldRedirect(true);
         setCheckingAuth(false);
       }
     } catch (error) {
-      console.error('❌ Auth check error:', error);
-      setIsAuthenticated(false);
+      console.error('❌ Kimlik doğrulama hatası:', error);
       setError('Kimlik doğrulama hatası');
     } finally {
       setCheckingAuth(false);
     }
   };
 
-  // Kategori değiştiğinde kanalları yükle
   useEffect(() => {
     if (selectedCategory) {
       loadChannels(selectedCategory);
@@ -105,46 +86,50 @@ const LiveTv: React.FC = () => {
       setLoading(true);
       setError(null);
 
-      // Önce AsyncStorage'dan kategorileri kontrol et
-      const cachedCategories = await storageService.getItem<Category[]>('LIVE_TV_CATEGORIES');
-      
-      if (cachedCategories && cachedCategories.length > 0) {
-        const categoriesWithSpecial: Category[] = [
-          { id: 'all', name: '📺 TÜM' },
-          { id: 'favorites', name: '⭐ FAVORİLERİM' },
-          ...cachedCategories,
-        ];
-        setCategories(categoriesWithSpecial);
+      if (!database) {
+        console.error('❌ Veritabanı başlatılamadı');
+        setError('Veritabanı başlatılamadı. Lütfen uygulamayı yeniden başlatın.');
         setLoading(false);
         return;
       }
 
-      // Eğer cache'de yoksa, API'den çek (sadece ilk kez)
-      const apiCategories = await channelService.getCategories();
-      
-      // API'den gelen kategorileri component formatına dönüştür
-      const formattedCategories: Category[] = apiCategories.map((cat: LiveCategory) => ({
-        id: cat.category_id,
-        name: cat.category_name,
-      }));
+      const dbCategories = await database.get<LiveCategoryModel>('live_categories').query().fetch();
+      let formattedCategories: Category[] = [];
 
-      // AsyncStorage'a kaydet
-      await storageService.setItem('LIVE_TV_CATEGORIES', formattedCategories);
+      if (dbCategories.length > 0) {
+        const uniqueMap = new Map<string, Category>();
+        dbCategories.forEach((record) => {
+          if (!uniqueMap.has(record.categoryId)) {
+            uniqueMap.set(record.categoryId, {
+              id: record.categoryId,
+              name: record.categoryName,
+            });
+          }
+        });
+        formattedCategories = Array.from(uniqueMap.values());
+        console.log(`✅ ${formattedCategories.length} kategori DB'den yüklendi`);
+      } else {
+        console.log('⚠️ Kategoriler bulunamadı. Lütfen ana sayfadan "Güncelle" butonuna basın.');
+        setError('Kategoriler bulunamadı. Lütfen ana sayfadan "Tüm Verileri Güncelle" butonuna basarak verileri indirin.');
+        setLoading(false);
+        return;
+      }
 
-      // En başa özel kategoriler ekle
+      const filteredCategories = formattedCategories.filter(
+        (cat) => cat.id !== 'all' && cat.id !== 'favorites'
+      );
+
       const categoriesWithSpecial: Category[] = [
         { id: 'all', name: '📺 TÜM' },
         { id: 'favorites', name: '⭐ FAVORİLERİM' },
-        ...formattedCategories,
+        ...filteredCategories,
       ];
 
       setCategories(categoriesWithSpecial);
-
-      // İlk kategoriyi otomatik seç (Tümü)
       setSelectedCategory('all');
     } catch (err) {
-      console.error('Kategoriler yüklenemedi:', err);
-      setError('Kategoriler yüklenirken bir hata oluştu. Lütfen giriş yaptığınızdan emin olun.');
+      console.error('❌ Kategori yükleme hatası:', err);
+      setError('Beklenmeyen bir hata oluştu. Lütfen tekrar deneyin.');
     } finally {
       setLoading(false);
     }
@@ -153,82 +138,91 @@ const LiveTv: React.FC = () => {
   const loadChannels = async (categoryId: string) => {
     try {
       setLoadingChannels(true);
-      
-      let apiChannels: ApiChannel[] = [];
 
-      // SWR Stratejisi: Önce database'den çek (stale data)
-      if (database) {
-        try {
-          const dbChannels = await database
-            .get<ChannelModel>('channels')
-            .query()
-            .fetch();
-
-          // Database'den gelen veriyi API formatına çevir
-          const dbChannelsFormatted: ApiChannel[] = dbChannels.map((c, index) => ({
-            num: index + 1,
-            stream_id: c.streamId,
-            name: c.name,
-            stream_type: c.streamType,
-            stream_icon: c.streamIcon || '',
-            epg_channel_id: c.epgChannelId || '',
-            category_id: c.categoryId,
-            category_ids: c.categoryIds ? JSON.parse(c.categoryIds) : [],
-            added: c.added || '',
-            custom_sid: c.customSid || '',
-            tv_archive: c.tvArchive || 0,
-            direct_source: c.directSource || '',
-            tv_archive_duration: c.tvArchiveDuration || 0,
-            thumbnail: c.thumbnail || '',
-            streamUrl: undefined,
-          }));
-
-          // Kategoriye göre filtrele
-          if (categoryId === 'all') {
-            apiChannels = dbChannelsFormatted;
-          } else if (categoryId === 'favorites') {
-            const favoriteIds = Array.from(favorites);
-            apiChannels = dbChannelsFormatted.filter(ch => 
-              favoriteIds.includes(ch.stream_id.toString())
-            );
-          } else {
-            apiChannels = dbChannelsFormatted.filter(ch =>
-              ch.category_id === categoryId || 
-              (ch.category_ids && ch.category_ids.includes(parseInt(categoryId)))
-            );
-          }
-
-          // Veriyi hemen göster (sadece database'den)
-          const formattedChannels: Channel[] = apiChannels.map((ch: ApiChannel) => ({
-            id: ch.stream_id.toString(),
-            name: ch.name,
-            logo: ch.stream_icon || ch.name.substring(0, 3).toUpperCase(),
-            subscribers: `ID: ${ch.stream_id}`,
-            quality: ch.tv_archive ? ['HD', 'Arşiv'] : ['HD'],
-            description: `${ch.name} - Canlı yayın`,
-            type: categories.find(cat => cat.id === ch.category_id)?.name || 'Canlı TV',
-            streamUrl: ch.streamUrl,
-          }));
-          setChannels(formattedChannels);
-          console.log(`✅ ${formattedChannels.length} kanal yüklendi (Kategori: ${categoryId})`);
-        } catch (dbError) {
-          console.warn('Database read error:', dbError);
-          setChannels([]);
-        }
-      } else {
-        // Database yoksa boş liste göster
+      if (!database) {
+        console.error('❌ Veritabanı başlatılamadı');
         setChannels([]);
+        setLoadingChannels(false);
+        return;
       }
 
-      // Arka planda sync tetikle (UI'ı bloke etmeden) - sadece "all" kategorisinde
-      // SyncService zaten zaman damgası kontrolü yapıyor, gereksiz istek atmıyor
-      if (categoryId === 'all') {
-        syncService.checkAndRunSync('channels').catch(err => {
-          console.error('Background sync error:', err);
-        });
+      const dbChannels = await database.get<ChannelModel>('channels').query().fetch();
+
+      if (dbChannels.length === 0) {
+        console.log('⚠️ Kanallar bulunamadı. Lütfen ana sayfadan "Güncelle" butonuna basın.');
+        setChannels([]);
+        setLoadingChannels(false);
+        return;
       }
+
+      const credentials = apiClient.getCredentials();
+      const baseUrl = apiClient.getBaseUrl();
+
+      if (!credentials || !baseUrl) {
+        console.warn('⚠️ Credentials veya base URL bulunamadı');
+        setChannels([]);
+        setLoadingChannels(false);
+        return;
+      }
+
+      let dbChannelsFormatted = dbChannels.map((c, index) => {
+        const streamUrl = buildStreamUrl(
+          baseUrl,
+          credentials.username,
+          credentials.password,
+          c.streamId.toString(),
+          'ts'
+        );
+
+        return {
+          stream_id: c.streamId,
+          name: c.name,
+          stream_type: c.streamType,
+          stream_icon: c.streamIcon || '',
+          epg_channel_id: c.epgChannelId || '',
+          category_id: c.categoryId,
+          category_ids: c.categoryIds ? JSON.parse(c.categoryIds) : [],
+          added: c.added || '',
+          custom_sid: c.customSid || '',
+          tv_archive: c.tvArchive || 0,
+          direct_source: c.directSource || '',
+          tv_archive_duration: c.tvArchiveDuration || 0,
+          thumbnail: c.thumbnail || '',
+          streamUrl: streamUrl,
+        };
+      });
+
+      let filteredChannels;
+      if (categoryId === 'all') {
+        filteredChannels = dbChannelsFormatted;
+      } else if (categoryId === 'favorites') {
+        const favoriteIds = Array.from(favorites);
+        filteredChannels = dbChannelsFormatted.filter((ch) =>
+          favoriteIds.includes(ch.stream_id.toString())
+        );
+      } else {
+        filteredChannels = dbChannelsFormatted.filter(
+          (ch) =>
+            ch.category_id === categoryId ||
+            (ch.category_ids && ch.category_ids.includes(parseInt(categoryId)))
+        );
+      }
+
+      const formattedChannels: Channel[] = filteredChannels.map((ch) => ({
+        id: ch.stream_id.toString(),
+        name: ch.name,
+        logo: ch.stream_icon || ch.name.substring(0, 3).toUpperCase(),
+        subscribers: `ID: ${ch.stream_id}`,
+        quality: ch.tv_archive ? ['HD', 'Arşiv'] : ['HD'],
+        description: `${ch.name} - Canlı yayın`,
+        type: categories.find((cat) => cat.id === ch.category_id)?.name || 'Bilinmeyen Kategori',
+        streamUrl: ch.streamUrl,
+      }));
+
+      setChannels(formattedChannels);
+      console.log(`✅ ${formattedChannels.length} kanal veritabanından yüklendi`);
     } catch (err) {
-      console.error('Kanallar yüklenemedi:', err);
+      console.error('❌ Kanallar yüklenemedi:', err);
       setChannels([]);
     } finally {
       setLoadingChannels(false);
@@ -238,33 +232,27 @@ const LiveTv: React.FC = () => {
   const loadFavorites = async () => {
     try {
       const storedFavorites = await databaseService.getFavorites();
-      const favoriteIds = storedFavorites
-        .filter(fav => fav.type === 'channel')
-        .map(fav => fav.id);
+      const favoriteIds = storedFavorites.filter((fav) => fav.type === 'channel').map((fav) => fav.id);
       setFavorites(new Set(favoriteIds));
     } catch (error) {
-      console.error('Favoriler yüklenemedi:', error);
+      console.error('❌ Favoriler yüklenemedi:', error);
     }
   };
 
   const handleCategorySelect = (categoryId: string) => {
     setSelectedCategory(categoryId);
-    setSelectedChannel(null); // Kategori değiştiğinde seçili kanalı temizle
+    setSelectedChannel(null);
   };
 
   const handleChannelSelect = async (channel: { id: string; name: string; streamUrl?: string }) => {
-    console.log('🎯 handleChannelSelect çağrıldı:', channel);
-    
-    // Seçilen kanalı bul
-    const foundChannel = channels.find(ch => ch.id === channel.id);
-    console.log('🔍 Bulunan kanal:', foundChannel);
-    
+    console.log('🎯 Kanal seçildi:', channel.name);
+
+    const foundChannel = channels.find((ch) => ch.id === channel.id);
+
     if (foundChannel) {
       setSelectedChannel(foundChannel);
       setIsVideoFullScreen(true);
-      console.log('✅ selectedChannel güncellendi:', foundChannel);
-      
-      // EPG verilerini yükle
+      console.log('✅ Kanal yüklendi:', foundChannel.name);
       await loadEPG(channel.id);
     } else {
       console.error('❌ Kanal bulunamadı:', channel.id);
@@ -280,25 +268,24 @@ const LiveTv: React.FC = () => {
     try {
       setLoadingEPG(true);
       const epg = await channelService.getEPG(streamId, 5);
-      
-      // EPG verilerini formatla
-      const formattedEPG = epg.map(program => ({
+
+      const formattedEPG = epg.map((program) => ({
         title: program.title,
         description: program.description || '',
         startTime: new Date(program.start_timestamp * 1000).toLocaleTimeString('tr-TR', {
           hour: '2-digit',
-          minute: '2-digit'
+          minute: '2-digit',
         }),
         endTime: new Date(program.stop_timestamp * 1000).toLocaleTimeString('tr-TR', {
           hour: '2-digit',
-          minute: '2-digit'
+          minute: '2-digit',
         }),
       }));
-      
+
       setEpgData(formattedEPG);
-      console.log(`✅ EPG yüklendi: ${formattedEPG.length} program`);
+      console.log(`✅ ${formattedEPG.length} program EPG verileri yüklendi`);
     } catch (error) {
-      console.error('EPG yüklenemedi:', error);
+      console.error('❌ EPG yüklenemedi:', error);
       setEpgData([]);
     } finally {
       setLoadingEPG(false);
@@ -311,7 +298,7 @@ const LiveTv: React.FC = () => {
 
   const handleToggleFavorite = async (channelId: string) => {
     try {
-      const channel = channels.find(c => c.id === channelId);
+      const channel = channels.find((c) => c.id === channelId);
       if (!channel) return;
 
       const next = await databaseService.toggleFavorite({
@@ -321,7 +308,6 @@ const LiveTv: React.FC = () => {
         poster: channel.logo || '',
       });
 
-      // Favori listesini güncelle
       setFavorites((prev) => {
         const newSet = new Set(prev);
         if (next) {
@@ -331,13 +317,12 @@ const LiveTv: React.FC = () => {
         }
         return newSet;
       });
-      
-      // Eğer favoriler kategorisindeyse kanalları yeniden yükle
+
       if (selectedCategory === 'favorites') {
         loadChannels('favorites');
       }
     } catch (error) {
-      console.error('Favori işlemi başarısız:', error);
+      console.error('❌ Favori işlemi başarısız:', error);
     }
   };
 
@@ -347,9 +332,10 @@ const LiveTv: React.FC = () => {
     }
 
     const query = searchQuery.toLowerCase();
-    return channels.filter((channel) =>
-      channel.name.toLowerCase().includes(query) ||
-      channel.subscribers.toLowerCase().includes(query)
+    return channels.filter(
+      (channel) =>
+        channel.name.toLowerCase().includes(query) ||
+        channel.subscribers.toLowerCase().includes(query)
     );
   }, [channels, searchQuery]);
 
@@ -357,25 +343,27 @@ const LiveTv: React.FC = () => {
     setSearchQuery(value);
   }, []);
 
-  const renderChannelItem = useCallback(({ item }: { item: Channel }) => (
-    <View style={styles.channelGridItem}>
-      <ChannelCard
-        id={item.id}
-        name={item.name}
-        logo={item.logo}
-        subscribers={item.subscribers}
-        quality={item.quality}
-        isFavorite={favorites.has(item.id)}
-        onToggleFavorite={handleToggleFavorite}
-        onChannelSelect={handleChannelSelect}
-        variant="grid"
-      />
-    </View>
-  ), [favorites, handleChannelSelect, handleToggleFavorite]);
+  const renderChannelItem = useCallback(
+    ({ item }: { item: Channel }) => (
+      <View style={styles.channelGridItem}>
+        <ChannelCard
+          id={item.id}
+          name={item.name}
+          logo={item.logo}
+          subscribers={item.subscribers}
+          quality={item.quality}
+          isFavorite={favorites.has(item.id)}
+          onToggleFavorite={handleToggleFavorite}
+          onChannelSelect={handleChannelSelect}
+          variant="grid"
+        />
+      </View>
+    ),
+    [favorites, handleChannelSelect, handleToggleFavorite]
+  );
 
   const channelKeyExtractor = useCallback((item: Channel) => item.id, []);
 
-  // Redirect işlemi
   if (shouldRedirect) {
     return <Redirect href="/login" />;
   }
@@ -391,12 +379,6 @@ const LiveTv: React.FC = () => {
     );
   }
 
-  // Giriş yapılmamışsa
-  if (!isAuthenticated) {
-    return <Redirect href="/login" />;
-  }
-
-  // Yükleniyor durumu
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
@@ -408,32 +390,40 @@ const LiveTv: React.FC = () => {
     );
   }
 
-  // Hata durumu
   if (error) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.centerContent}>
           <Text style={styles.errorText}>❌ {error}</Text>
-          <Text style={styles.errorHint}>
-            Lütfen önce giriş yapın. Ana sayfadan credentials girin.
-          </Text>
+          <TouchableOpacity
+            style={styles.backToHomeButton}
+            onPress={() => router.push('/')}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.backToHomeText}>Ana Sayfaya Dön</Text>
+          </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
   }
 
-  // Kategori yoksa
   if (categories.length === 0) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.centerContent}>
           <Text style={styles.errorText}>📺 Kategori bulunamadı</Text>
+          <TouchableOpacity
+            style={styles.backToHomeButton}
+            onPress={() => router.push('/')}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.backToHomeText}>Ana Sayfaya Dön</Text>
+          </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
   }
 
-  // Current channel - güvenli erişim
   const currentChannel = selectedChannel || channels[0] || {
     id: 'default',
     name: 'Kanal Seçin',
@@ -445,12 +435,6 @@ const LiveTv: React.FC = () => {
     streamUrl: undefined,
   };
 
-  console.log('🔍 Debug Info:');
-  console.log('- selectedChannel:', selectedChannel);
-  console.log('- channels.length:', channels.length);
-  console.log('- currentChannel:', currentChannel);
-  console.log('- epgData.length:', epgData.length);
-
   const isWideLayout = width >= 1024;
   const sidebarWidth = Math.min(Math.max(width * 0.3, 180), 320);
   const horizontalPadding = isWideLayout ? 32 : 20;
@@ -460,12 +444,7 @@ const LiveTv: React.FC = () => {
   return (
     <SafeAreaView style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
-      <View
-        style={[
-          styles.content,
-          styles.contentRow,
-        ]}
-      >
+      <View style={[styles.content, styles.contentRow]}>
         <View style={[styles.sidebar, { width: sidebarWidth }]}>
           <View style={styles.backRow}>
             <TouchableOpacity
@@ -522,8 +501,8 @@ const LiveTv: React.FC = () => {
                 {searchQuery
                   ? `"${searchQuery}" için sonuç bulunamadı`
                   : selectedCategory === 'favorites'
-                    ? '⭐ Henüz favori kanal eklemediniz'
-                    : '📺 Bu kategoride kanal bulunamadı'}
+                  ? '⭐ Henüz favori kanal eklemediniz'
+                  : '📺 Bu kategoride kanal bulunamadı. Lütfen ana sayfadan güncelleme yapın.'}
               </Text>
             </View>
           ) : (
@@ -624,7 +603,6 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     textTransform: 'uppercase',
     fontFamily: fonts.bold,
-    
   },
   channelListWrapper: {
     flex: 1,
@@ -712,14 +690,19 @@ const styles = StyleSheet.create({
     color: '#ff6b6b',
     fontSize: 18,
     textAlign: 'center',
-    marginBottom: 12,
+    marginBottom: 20,
     fontFamily: fonts.semibold,
   },
-  errorHint: {
-    color: 'rgba(255, 255, 255, 0.7)',
-    fontSize: 14,
-    textAlign: 'center',
-    fontFamily: fonts.regular,
+  backToHomeButton: {
+    backgroundColor: 'rgba(99, 102, 241, 0.9)',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+  },
+  backToHomeText: {
+    color: '#fff',
+    fontSize: 16,
+    fontFamily: fonts.semibold,
   },
   channelsLoading: {
     flex: 1,
@@ -731,19 +714,6 @@ const styles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.7)',
     fontSize: 16,
     textAlign: 'center',
-    fontFamily: fonts.semibold,
-  },
-  loginButton: {
-    backgroundColor: '#0b1120',
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    marginTop: 20,
-    minWidth: 200,
-  },
-  loginButtonText: {
-    color: '#fff',
-    fontSize: 16,
     fontFamily: fonts.semibold,
   },
   fullscreenOverlay: {

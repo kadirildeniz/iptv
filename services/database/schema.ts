@@ -1,14 +1,13 @@
 import { appSchema, tableSchema } from '@nozbe/watermelondb';
 
 export const schema = appSchema({
-  version: 1,
+  version: 5,
   tables: [
-    // Favoriler tablosu
     tableSchema({
       name: 'favorites',
       columns: [
         { name: 'item_id', type: 'string', isIndexed: true },
-        { name: 'item_type', type: 'string' }, // 'movie', 'series', 'channel'
+        { name: 'item_type', type: 'string' },
         { name: 'title', type: 'string' },
         { name: 'poster', type: 'string', isOptional: true },
         { name: 'cover', type: 'string', isOptional: true },
@@ -16,7 +15,30 @@ export const schema = appSchema({
         { name: 'updated_at', type: 'number' },
       ],
     }),
-    // Kanallar tablosu
+    tableSchema({
+      name: 'live_categories',
+      columns: [
+        { name: 'category_id', type: 'string', isIndexed: true },
+        { name: 'category_name', type: 'string' },
+        { name: 'cached_at', type: 'number' },
+      ],
+    }),
+    tableSchema({
+      name: 'movie_categories',
+      columns: [
+        { name: 'category_id', type: 'string', isIndexed: true },
+        { name: 'category_name', type: 'string' },
+        { name: 'cached_at', type: 'number' },
+      ],
+    }),
+    tableSchema({
+      name: 'series_categories',
+      columns: [
+        { name: 'category_id', type: 'string', isIndexed: true },
+        { name: 'category_name', type: 'string' },
+        { name: 'cached_at', type: 'number' },
+      ],
+    }),
     tableSchema({
       name: 'channels',
       columns: [
@@ -26,7 +48,7 @@ export const schema = appSchema({
         { name: 'stream_icon', type: 'string', isOptional: true },
         { name: 'epg_channel_id', type: 'string', isOptional: true },
         { name: 'category_id', type: 'string', isIndexed: true },
-        { name: 'category_ids', type: 'string', isOptional: true }, // JSON array
+        { name: 'category_ids', type: 'string', isOptional: true },
         { name: 'added', type: 'string', isOptional: true },
         { name: 'custom_sid', type: 'string', isOptional: true },
         { name: 'tv_archive', type: 'number', isOptional: true },
@@ -36,7 +58,6 @@ export const schema = appSchema({
         { name: 'cached_at', type: 'number' },
       ],
     }),
-    // Filmler tablosu
     tableSchema({
       name: 'movies',
       columns: [
@@ -47,15 +68,26 @@ export const schema = appSchema({
         { name: 'rating', type: 'string', isOptional: true },
         { name: 'rating_5based', type: 'number', isOptional: true },
         { name: 'category_id', type: 'string', isIndexed: true },
-        { name: 'category_ids', type: 'string', isOptional: true }, // JSON array
+        { name: 'category_ids', type: 'string', isOptional: true },
         { name: 'added', type: 'string', isOptional: true },
         { name: 'container_extension', type: 'string', isOptional: true },
         { name: 'custom_sid', type: 'string', isOptional: true },
         { name: 'direct_source', type: 'string', isOptional: true },
+        { name: 'plot', type: 'string', isOptional: true },
+        { name: 'cast', type: 'string', isOptional: true },
+        { name: 'director', type: 'string', isOptional: true },
+        { name: 'genre', type: 'string', isOptional: true },
+        { name: 'release_date', type: 'string', isOptional: true },
+        { name: 'duration', type: 'string', isOptional: true },
+        { name: 'duration_secs', type: 'string', isOptional: true },
+        { name: 'backdrop_path', type: 'string', isOptional: true },
+        { name: 'youtube_trailer', type: 'string', isOptional: true },
+        { name: 'tmdb_id', type: 'string', isOptional: true },
+        { name: 'country', type: 'string', isOptional: true },
+        { name: 'age_rating', type: 'string', isOptional: true },
         { name: 'cached_at', type: 'number' },
       ],
     }),
-    // Diziler tablosu
     tableSchema({
       name: 'series',
       columns: [
@@ -70,15 +102,16 @@ export const schema = appSchema({
         { name: 'last_modified', type: 'number', isOptional: true },
         { name: 'rating', type: 'string', isOptional: true },
         { name: 'rating_5based', type: 'number', isOptional: true },
-        { name: 'backdrop_path', type: 'string', isOptional: true }, // JSON array
+        { name: 'backdrop_path', type: 'string', isOptional: true },
         { name: 'youtube_trailer', type: 'string', isOptional: true },
         { name: 'episode_run_time', type: 'string', isOptional: true },
         { name: 'category_id', type: 'string', isIndexed: true },
-        { name: 'category_ids', type: 'string', isOptional: true }, // JSON array
+        { name: 'category_ids', type: 'string', isOptional: true },
+        { name: 'seasons', type: 'string', isOptional: true },
+        { name: 'episodes', type: 'string', isOptional: true },
         { name: 'cached_at', type: 'number' },
       ],
     }),
-    // EPG Programları tablosu
     tableSchema({
       name: 'epg_programs',
       columns: [
@@ -96,7 +129,6 @@ export const schema = appSchema({
         { name: 'cached_at', type: 'number' },
       ],
     }),
-    // İzleme geçmişi tablosu
     tableSchema({
       name: 'watch_history',
       columns: [
@@ -106,10 +138,9 @@ export const schema = appSchema({
         { name: 'poster', type: 'string', isOptional: true },
         { name: 'watched_at', type: 'number' },
         { name: 'duration', type: 'number', isOptional: true },
-        { name: 'progress', type: 'number', isOptional: true }, // 0-100
+        { name: 'progress', type: 'number', isOptional: true },
       ],
     }),
-    // İzlemeye devam et tablosu
     tableSchema({
       name: 'continue_watching',
       columns: [
@@ -118,13 +149,12 @@ export const schema = appSchema({
         { name: 'title', type: 'string' },
         { name: 'poster', type: 'string', isOptional: true },
         { name: 'cover', type: 'string', isOptional: true },
-        { name: 'progress', type: 'number' }, // 0-100
-        { name: 'current_time', type: 'number' }, // saniye cinsinden
-        { name: 'duration', type: 'number' }, // saniye cinsinden
+        { name: 'progress', type: 'number' },
+        { name: 'current_time', type: 'number' },
+        { name: 'duration', type: 'number' },
         { name: 'updated_at', type: 'number' },
       ],
     }),
-    // Dizi bölümleri izleme durumu
     tableSchema({
       name: 'episode_progress',
       columns: [
@@ -133,13 +163,12 @@ export const schema = appSchema({
         { name: 'episode_number', type: 'number' },
         { name: 'episode_id', type: 'string', isIndexed: true },
         { name: 'title', type: 'string', isOptional: true },
-        { name: 'progress', type: 'number' }, // 0-100
-        { name: 'current_time', type: 'number' }, // saniye cinsinden
-        { name: 'duration', type: 'number' }, // saniye cinsinden
+        { name: 'progress', type: 'number' },
+        { name: 'current_time', type: 'number' },
+        { name: 'duration', type: 'number' },
         { name: 'watched', type: 'boolean' },
         { name: 'updated_at', type: 'number' },
       ],
     }),
   ],
 });
-

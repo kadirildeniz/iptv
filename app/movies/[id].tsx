@@ -15,15 +15,19 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import VideoPlayer from '@/app/components/VideoPlayer';
-import { movieService, databaseService, type Movie, type VodInfo } from '@/services';
+import { movieService, databaseService, database, type Movie } from '@/services';
 import { fonts } from '@/theme/fonts';
+import apiClient from '@/services/api/client';
+import { buildMovieUrl } from '@/services/api/endpoints';
+import MovieModel from '@/services/database/models/Movie';
 
 const MovieDetail: React.FC = () => {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const [movie, setMovie] = useState<Movie | null>(null);
-  const [movieInfo, setMovieInfo] = useState<VodInfo | null>(null);
+  const [movieInfo, setMovieInfo] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false); // Lazy load durumu için
   const [error, setError] = useState<string | null>(null);
   const [searchCast, setSearchCast] = useState('');
   const [isPlayerVisible, setIsPlayerVisible] = useState(false);
@@ -41,25 +45,144 @@ const MovieDetail: React.FC = () => {
       setLoading(true);
       setError(null);
 
-      // Film temel bilgilerini getir
-      const movieData = await movieService.getMovieById(id);
-      if (!movieData) {
-        setError('Film bulunamadı');
-        return;
+      let movieData: Movie | null = null;
+      let detailsLoaded = false;
+
+      // 1. Önce veritabanından temel veriyi ve varsa detayları çek
+      if (database) {
+        try {
+          const dbMovies = await database.get<MovieModel>('movies').query().fetch();
+          const dbMovie = dbMovies.find((m) => m.streamId.toString() === id);
+
+          if (dbMovie) {
+            const credentials = apiClient.getCredentials();
+            const baseUrl = apiClient.getBaseUrl();
+
+            if (credentials && baseUrl) {
+              const streamUrl = buildMovieUrl(
+                baseUrl,
+                credentials.username,
+                credentials.password,
+                dbMovie.streamId.toString(),
+                dbMovie.containerExtension || 'mp4'
+              );
+
+              movieData = {
+                num: 1,
+                stream_id: dbMovie.streamId,
+                name: dbMovie.name,
+                stream_type: dbMovie.streamType,
+                stream_icon: dbMovie.streamIcon || '',
+                rating: dbMovie.rating || '',
+                rating_5based: dbMovie.rating5based || 0,
+                category_id: dbMovie.categoryId,
+                category_ids: dbMovie.categoryIds ? JSON.parse(dbMovie.categoryIds) : [],
+                added: dbMovie.added || '',
+                container_extension: dbMovie.containerExtension || '',
+                custom_sid: dbMovie.customSid || '',
+                direct_source: dbMovie.directSource || '',
+                streamUrl: streamUrl,
+              };
+
+              setMovie(movieData);
+              const isFav = await databaseService.isFavorite(movieData.stream_id.toString());
+              setIsFavorite(isFav);
+
+              // Detaylar DB'de var mı kontrol et
+              if (dbMovie.plot || dbMovie.cast || dbMovie.director) {
+                const backdropPath = dbMovie.backdropPath ? JSON.parse(dbMovie.backdropPath) : [];
+                
+                setMovieInfo({
+                  info: {
+                    plot: dbMovie.plot || '',
+                    description: dbMovie.plot || '',
+                    cast: dbMovie.cast || '',
+                    actors: dbMovie.cast || '',
+                    director: dbMovie.director || '',
+                    genre: dbMovie.genre || '',
+                    releasedate: dbMovie.releaseDate || '',
+                    duration: dbMovie.duration || '',
+                    duration_secs: dbMovie.durationSecs ? parseInt(dbMovie.durationSecs) : undefined,
+                    backdrop_path: backdropPath,
+                    youtube_trailer: dbMovie.youtubeTrailer || '',
+                    tmdb_id: dbMovie.tmdbId || '',
+                    country: dbMovie.country || '',
+                    age: dbMovie.ageRating || '',
+                    movie_image: dbMovie.streamIcon || '',
+                    cover_big: dbMovie.streamIcon || '',
+                  },
+                  movie_data: movieData,
+                });
+                
+                detailsLoaded = true;
+                console.log('✅ Film detayları cache\'den (DB) yüklendi');
+              }
+            }
+          }
+        } catch (dbError) {
+          console.warn('Database read error:', dbError);
+        }
       }
 
-      setMovie(movieData);
-      const isFav = await databaseService.isFavorite(movieData.stream_id.toString());
-      setIsFavorite(isFav);
+      // 2. Eğer detaylar eksikse veya film hiç yoksa API'den çek (LAZY LOAD)
+      if (!detailsLoaded) {
+        console.log('⏳ Detaylar eksik, API\'den çekiliyor (Lazy Load)...');
+        setRefreshing(true);
+        
+        try {
+           // Eğer temel veri bile yoksa önce onu al (Fallback)
+           if (!movieData) {
+             movieData = await movieService.getMovieById(id);
+             if (movieData) {
+               setMovie(movieData);
+               // Favori durumunu kontrol et
+               const isFav = await databaseService.isFavorite(movieData.stream_id.toString());
+               setIsFavorite(isFav);
+             }
+           }
 
-      // Film detay bilgilerini getir
-      try {
-        const info = await movieService.getMovieInfo(id);
-        setMovieInfo(info);
-      } catch (err) {
-        console.warn('Film detay bilgileri yüklenemedi:', err);
-        // Detay bilgileri yüklenemese bile devam et
+           if (movieData) {
+             const apiMovieInfo = await movieService.getMovieInfo(id);
+             setMovieInfo(apiMovieInfo);
+             
+             // 3. Gelen detayları DB'ye kaydet (Cache Update)
+             if (database) {
+               const dbMovies = await database.get<MovieModel>('movies').query().fetch();
+               const localMovie = dbMovies.find(m => m.streamId.toString() === id);
+               
+               if (localMovie) {
+                  await database.write(async () => {
+                    await localMovie.update(m => {
+                      if (apiMovieInfo.info) {
+                        m.plot = apiMovieInfo.info.plot || apiMovieInfo.info.description || undefined;
+                        m.cast = apiMovieInfo.info.cast || apiMovieInfo.info.actors || undefined;
+                        m.director = apiMovieInfo.info.director || undefined;
+                        m.genre = apiMovieInfo.info.genre || undefined;
+                        m.releaseDate = apiMovieInfo.info.releasedate || apiMovieInfo.info.release_date || undefined;
+                        m.duration = apiMovieInfo.info.duration || undefined;
+                        m.durationSecs = apiMovieInfo.info.duration_secs?.toString() || undefined;
+                        m.backdropPath = JSON.stringify(apiMovieInfo.info.backdrop_path || []);
+                        m.youtubeTrailer = apiMovieInfo.info.youtube_trailer || undefined;
+                        m.tmdbId = apiMovieInfo.info.tmdb_id || undefined;
+                        m.country = apiMovieInfo.info.country || undefined;
+                        m.ageRating = apiMovieInfo.info.age || apiMovieInfo.info.mpaa_rating || undefined;
+                      }
+                    });
+                  });
+                  console.log('💾 Detaylar DB\'ye kaydedildi (Cache Updated)');
+               }
+             }
+           } else {
+             setError('Film bulunamadı');
+           }
+        } catch (apiError) {
+          console.error('Lazy load error:', apiError);
+          // API hatası olsa bile temel verilerle göstermeye devam et
+        } finally {
+          setRefreshing(false);
+        }
       }
+
     } catch (err) {
       console.error('Film yüklenirken hata:', err);
       setError('Film yüklenirken bir hata oluştu');
@@ -68,11 +191,10 @@ const MovieDetail: React.FC = () => {
     }
   };
 
-  const formatDuration = (duration: string | undefined): string => {
+  const formatDuration = (duration: string | number | undefined): string => {
     if (!duration) return 'Bilinmiyor';
-    
-    // Saniye cinsinden geliyorsa dakika/saat'e çevir
-    if (duration.includes('sec') || duration.match(/^\d+$/)) {
+
+    if (typeof duration === 'string' && (duration.includes('sec') || duration.match(/^\d+$/))) {
       const seconds = parseInt(duration);
       if (!isNaN(seconds)) {
         const hours = Math.floor(seconds / 3600);
@@ -83,14 +205,22 @@ const MovieDetail: React.FC = () => {
         return `${minutes}dk`;
       }
     }
-    
-    return duration;
+
+    if (typeof duration === 'number') {
+      const hours = Math.floor(duration / 3600);
+      const minutes = Math.floor((duration % 3600) / 60);
+      if (hours > 0) {
+        return `${hours}s ${minutes}dk`;
+      }
+      return `${minutes}dk`;
+    }
+
+    return typeof duration === 'string' ? duration : 'Bilinmiyor';
   };
 
   const formatDate = (dateString: string | undefined): string => {
     if (!dateString) return 'Bilinmiyor';
-    
-    // YYYY-MM-DD formatında ise
+
     if (dateString.match(/^\d{4}-\d{2}-\d{2}/)) {
       const date = new Date(dateString);
       return date.toLocaleDateString('tr-TR', {
@@ -99,12 +229,11 @@ const MovieDetail: React.FC = () => {
         day: 'numeric',
       });
     }
-    
-    // Sadece yıl varsa
+
     if (dateString.match(/^\d{4}$/)) {
       return dateString;
     }
-    
+
     return dateString;
   };
 
@@ -117,6 +246,11 @@ const MovieDetail: React.FC = () => {
         </View>
       </SafeAreaView>
     );
+  }
+
+  if (!movie && !error) {
+      // Yükleniyor olabilir veya veri yok
+      return null; 
   }
 
   if (!movie || error) {
@@ -132,7 +266,7 @@ const MovieDetail: React.FC = () => {
     );
   }
 
-  const baseInfo = (movieInfo?.info || movie.info || {}) as any;
+  const baseInfo = (movieInfo?.info || {}) as any;
   const poster =
     baseInfo.movie_image ||
     baseInfo.cover_big ||
@@ -144,14 +278,19 @@ const MovieDetail: React.FC = () => {
       ? (movie.rating_5based * 2).toFixed(1)
       : movie.rating || baseInfo.rating?.toFixed?.(1) || baseInfo.rating_count_kinopoisk?.toFixed?.(1);
 
-  const genres = baseInfo.genre ? String(baseInfo.genre).split(/[,|]/).map((g) => g.trim()).filter(Boolean) : [];
+  const genres = baseInfo.genre
+    ? String(baseInfo.genre)
+        .split(/[,|]/)
+        .map((g: string) => g.trim())
+        .filter(Boolean)
+    : [];
 
   const rawCast: Array<any> = Array.isArray(baseInfo.actor_list)
     ? baseInfo.actor_list
     : Array.isArray(baseInfo.cast_list)
     ? baseInfo.cast_list
-    : baseInfo.actors
-    ? String(baseInfo.actors)
+    : baseInfo.actors || baseInfo.cast
+    ? String(baseInfo.actors || baseInfo.cast)
         .split(',')
         .map((name: string) => ({ name: name.trim() }))
     : [];
@@ -178,28 +317,19 @@ const MovieDetail: React.FC = () => {
     .filter((member) => member.name);
 
   const filteredCast = castList.filter((member) =>
-    member.name?.toLowerCase().includes(searchCast.toLowerCase()),
+    member.name?.toLowerCase().includes(searchCast.toLowerCase())
   );
 
   const crew =
     baseInfo.director ||
     baseInfo.directors ||
-    (Array.isArray(baseInfo.director_list) ? baseInfo.director_list.map((d: any) => d.name).join(', ') : undefined);
+    (Array.isArray(baseInfo.director_list)
+      ? baseInfo.director_list.map((d: any) => d.name).join(', ')
+      : undefined);
 
   const description = baseInfo.plot || baseInfo.description || baseInfo.story;
 
-  const mediaItems =
-    (Array.isArray((movieInfo as any)?.streams)
-      ? (movieInfo as any).streams
-      : []
-    )
-      .filter((stream: any) => ['trailer', 'teaser', 'clip'].includes((stream?.category || '').toLowerCase()))
-      .map((stream: any) => ({
-        title: stream.title || stream.name || 'Fragman',
-        duration: stream?.duration ? formatDuration(stream.duration.toString()) : 'Medya',
-      }));
-
-  const tabs = ['Özet', 'Oyuncular', 'Medya'];
+  const mediaItems: Array<{ title: string; duration: string }> = [];
 
   const handleToggleFavorite = async () => {
     if (!movie) return;
@@ -230,7 +360,11 @@ const MovieDetail: React.FC = () => {
           <View style={styles.heroOverlay} />
 
           <View style={styles.heroContent}>
-            <TouchableOpacity style={styles.heroBackButton} onPress={() => router.back()} activeOpacity={0.85}>
+            <TouchableOpacity
+              style={styles.heroBackButton}
+              onPress={() => router.back()}
+              activeOpacity={0.85}
+            >
               <Ionicons name="chevron-back" size={22} color="#ffffff" />
             </TouchableOpacity>
             <TouchableOpacity
@@ -250,7 +384,8 @@ const MovieDetail: React.FC = () => {
                 <Text style={styles.heroTitle}>{movie.name || baseInfo?.name}</Text>
               </View>
               <Text style={styles.heroMeta}>
-                {formatDate(baseInfo?.releasedate)} · {formatDuration(baseInfo?.duration || baseInfo?.duration_secs?.toString())} · {genres[0] || 'Tür Bilinmiyor'}
+                {formatDate(baseInfo?.releasedate)} ·{' '}
+                {formatDuration(baseInfo?.duration_secs || baseInfo?.duration)} · {genres[0] || 'Tür Bilinmiyor'}
               </Text>
 
               <View style={styles.heroActions}>
@@ -275,6 +410,14 @@ const MovieDetail: React.FC = () => {
         </View>
 
         <View style={styles.body}>
+          {/* Lazy Load Yükleniyor Göstergesi */}
+          {refreshing && !description && (
+             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
+                <ActivityIndicator size="small" color="#0ea5e9" style={{ marginRight: 10 }}/>
+                <Text style={{ color: '#94a3b8', fontSize: 13 }}>Detaylar yükleniyor...</Text>
+             </View>
+          )}
+
           {description && (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Özet</Text>
@@ -286,7 +429,6 @@ const MovieDetail: React.FC = () => {
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>Oyuncular ve Ekip</Text>
-              
               </View>
               <View style={styles.castGrid}>
                 {crew && (
@@ -719,4 +861,3 @@ const styles = StyleSheet.create({
 });
 
 export default MovieDetail;
-

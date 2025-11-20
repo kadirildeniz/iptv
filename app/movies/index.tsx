@@ -12,12 +12,12 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useRouter, Redirect } from 'expo-router';
-import { useFocusEffect } from '@react-navigation/native';
 import CategoryList from '@/app/components/CategoryList';
 import MovieCard from '@/app/components/MovieCard';
-import { movieService, databaseService, storageService, syncService, database, type VodCategory, type Movie as ApiMovie } from '@/services';
+import { databaseService, storageService, database, type Movie as ApiMovie } from '@/services';
 import apiClient from '@/services/api/client';
 import MovieModel from '@/services/database/models/Movie';
+import MovieCategoryModel from '@/services/database/models/MovieCategory';
 import { fonts } from '@/theme/fonts';
 
 interface UICategory {
@@ -42,23 +42,17 @@ const Movies: React.FC = () => {
     initialize();
   }, []);
 
-  useFocusEffect(
-    useCallback(() => {
-      loadFavorites();
-    }, [])
-  );
-
   useEffect(() => {
     if (selectedCategory) {
       loadMovies(selectedCategory);
     }
-  }, [selectedCategory]); // favorites dependency'sini kaldırdık - sadece kategori değiştiğinde yükle
+  }, [selectedCategory]);
 
   const initialize = async () => {
     try {
       setLoading(true);
       setError(null);
-      
+
       const credentials = await storageService.getCredentials();
       if (!credentials) {
         setShouldRedirect(true);
@@ -66,12 +60,10 @@ const Movies: React.FC = () => {
         return;
       }
 
-      // API client'a credentials'ı yükle
       await apiClient.loadCredentials();
 
       await loadFavorites();
       await loadCategories();
-      // Sync loadMovies içinde tetikleniyor, burada tekrar çağırmaya gerek yok
     } catch (err) {
       console.error('Movies init error:', err);
       setError('Bir hata oluştu');
@@ -83,9 +75,7 @@ const Movies: React.FC = () => {
   const loadFavorites = useCallback(async () => {
     try {
       const storedFavorites = await databaseService.getFavorites();
-      const favIds = storedFavorites
-        .filter((f) => f.type === 'movie')
-        .map((f) => f.id);
+      const favIds = storedFavorites.filter((f) => f.type === 'movie').map((f) => f.id);
       setFavorites(new Set(favIds));
     } catch (err) {
       console.error('Favorites load error:', err);
@@ -94,127 +84,127 @@ const Movies: React.FC = () => {
 
   const loadCategories = async () => {
     try {
-      // Önce AsyncStorage'dan kategorileri kontrol et
-      const cachedCategories = await storageService.getItem<UICategory[]>('MOVIE_CATEGORIES');
-      
-      if (cachedCategories && cachedCategories.length > 0) {
-        const withSpecial: UICategory[] = [
-          { id: 'all', name: '🎬 TÜM' },
-          { id: 'favorites', name: '⭐ FAVORİLERİM' },
-          ...cachedCategories,
-        ];
-        setCategories(withSpecial);
-        setSelectedCategory('all');
+      setLoading(true);
+      setError(null);
+
+      if (!database) {
+        console.error('❌ Veritabanı başlatılamadı');
+        setError('Veritabanı başlatılamadı. Lütfen uygulamayı yeniden başlatın.');
+        setLoading(false);
         return;
       }
 
-      // Eğer cache'de yoksa, API'den çek (sadece ilk kez)
-      const apiCategories = await movieService.getCategories();
-      
-      const formatted: UICategory[] = apiCategories.map((c: VodCategory) => ({
-        id: c.category_id,
-        name: c.category_name,
-      }));
+      const dbCategories = await database.get<MovieCategoryModel>('movie_categories').query().fetch();
+      let formattedCategories: UICategory[] = [];
 
-      // AsyncStorage'a kaydet
-      await storageService.setItem('MOVIE_CATEGORIES', formatted);
+      if (dbCategories.length > 0) {
+        const uniqueMap = new Map<string, UICategory>();
+        dbCategories.forEach((record) => {
+          if (!uniqueMap.has(record.categoryId)) {
+            uniqueMap.set(record.categoryId, {
+              id: record.categoryId,
+              name: record.categoryName,
+            });
+          }
+        });
+        formattedCategories = Array.from(uniqueMap.values());
+        console.log(`✅ ${formattedCategories.length} film kategorisi DB'den yüklendi`);
+      } else {
+        console.log('⚠️ Film kategorileri bulunamadı. Lütfen ana sayfadan "Güncelle" butonuna basın.');
+        setError('Kategoriler bulunamadı. Lütfen ana sayfadan "Tüm Verileri Güncelle" butonuna basarak verileri indirin.');
+        setLoading(false);
+        return;
+      }
+
+      const filteredCategories = formattedCategories.filter(
+        (cat) => cat.id !== 'all' && cat.id !== 'favorites'
+      );
 
       const withSpecial: UICategory[] = [
         { id: 'all', name: '🎬 TÜM' },
         { id: 'favorites', name: '⭐ FAVORİLERİM' },
-        ...formatted,
+        ...filteredCategories,
       ];
 
       setCategories(withSpecial);
       setSelectedCategory('all');
     } catch (err) {
-      console.error('Movie categories load error:', err);
-      setError('Kategoriler yüklenemedi');
+      console.error('❌ Film kategorileri yükleme hatası:', err);
+      setError('Beklenmeyen bir hata oluştu. Lütfen tekrar deneyin.');
+    } finally {
+      setLoading(false);
     }
   };
 
   const loadMovies = async (categoryId: string) => {
     try {
       setLoadingMovies(true);
-      let apiMovies: ApiMovie[] = [];
 
-      // SWR Stratejisi: Önce database'den çek (stale data)
-      if (database) {
-        try {
-          const dbMovies = await database
-            .get<MovieModel>('movies')
-            .query()
-            .fetch();
-
-          // Database'den gelen veriyi API formatına çevir
-          const dbMoviesFormatted: ApiMovie[] = dbMovies.map((m, index) => ({
-            num: index + 1,
-            stream_id: m.streamId,
-            name: m.name,
-            stream_type: m.streamType,
-            stream_icon: m.streamIcon || '',
-            rating: m.rating || '',
-            rating_5based: m.rating5based || 0,
-            category_id: m.categoryId,
-            category_ids: m.categoryIds ? JSON.parse(m.categoryIds) : [],
-            added: m.added || '',
-            container_extension: m.containerExtension || '',
-            custom_sid: m.customSid || '',
-            direct_source: m.directSource || '',
-            streamUrl: undefined,
-          }));
-
-          // Kategoriye göre filtrele
-          if (categoryId === 'all') {
-            apiMovies = dbMoviesFormatted;
-          } else if (categoryId === 'favorites') {
-            apiMovies = dbMoviesFormatted.filter((m) =>
-              favorites.has(m.stream_id.toString())
-            );
-          } else {
-            apiMovies = dbMoviesFormatted.filter((m) =>
-              m.category_id === categoryId || 
-              (m.category_ids && m.category_ids.includes(parseInt(categoryId)))
-            );
-          }
-
-          // Veriyi hemen göster (sadece database'den)
-          setMovies(apiMovies);
-        } catch (dbError) {
-          console.warn('Database read error:', dbError);
-          setMovies([]);
-        }
-      } else {
-        // Database yoksa boş liste göster
+      if (!database) {
+        console.error('❌ Veritabanı başlatılamadı');
         setMovies([]);
+        setLoadingMovies(false);
+        return;
       }
 
-      // Arka planda sync tetikle (UI'ı bloke etmeden) - sadece "all" kategorisinde
-      // SyncService zaten zaman damgası kontrolü yapıyor, gereksiz istek atmıyor
-      if (categoryId === 'all') {
-        syncService.checkAndRunSync('movies').catch(err => {
-          console.error('Background sync error:', err);
-        });
+      const dbMovies = await database.get<MovieModel>('movies').query().fetch();
+
+      if (dbMovies.length === 0) {
+        console.log('⚠️ Filmler bulunamadı. Lütfen ana sayfadan "Güncelle" butonuna basın.');
+        setMovies([]);
+        setLoadingMovies(false);
+        return;
       }
+
+      const dbMoviesFormatted: ApiMovie[] = dbMovies.map((m, index) => ({
+        num: index + 1,
+        stream_id: m.streamId,
+        name: m.name,
+        stream_type: m.streamType,
+        stream_icon: m.streamIcon || '',
+        rating: m.rating || '',
+        rating_5based: m.rating5based || 0,
+        category_id: m.categoryId,
+        category_ids: m.categoryIds ? JSON.parse(m.categoryIds) : [],
+        added: m.added || '',
+        container_extension: m.containerExtension || '',
+        custom_sid: m.customSid || '',
+        direct_source: m.directSource || '',
+        streamUrl: undefined,
+      }));
+
+      let apiMovies: ApiMovie[] = [];
+      if (categoryId === 'all') {
+        apiMovies = dbMoviesFormatted;
+      } else if (categoryId === 'favorites') {
+        apiMovies = dbMoviesFormatted.filter((m) => favorites.has(m.stream_id.toString()));
+      } else {
+        apiMovies = dbMoviesFormatted.filter(
+          (m) =>
+            m.category_id === categoryId ||
+            (m.category_ids && m.category_ids.includes(parseInt(categoryId)))
+        );
+      }
+
+      setMovies(apiMovies);
+      console.log(`✅ ${apiMovies.length} film veritabanından yüklendi`);
     } catch (err) {
       console.error('Movies load error:', err);
       setMovies([]);
       setError('Filmler yüklenirken hata oluştu');
     } finally {
-      setLoadingMovies(false); // Her durumda loading'i kapat
+      setLoadingMovies(false);
     }
   };
 
   const getMovieYear = (movie: ApiMovie): string => {
-    // Release date kontrolü
     if (movie.info?.releasedate) {
       const year = movie.info.releasedate.slice(0, 4);
       if (year && !isNaN(Number(year))) {
         return year;
       }
     }
-    
-    // Added timestamp kontrolü
+
     if (movie.added) {
       const date = new Date(Number(movie.added) * 1000);
       const year = date.getFullYear();
@@ -222,7 +212,7 @@ const Movies: React.FC = () => {
         return year.toString();
       }
     }
-    
+
     return '';
   };
 
@@ -231,9 +221,7 @@ const Movies: React.FC = () => {
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
-      filtered = filtered.filter((m) => 
-        m.name.toLowerCase().includes(q)
-      );
+      filtered = filtered.filter((m) => m.name.toLowerCase().includes(q));
     }
 
     return filtered;
@@ -247,7 +235,6 @@ const Movies: React.FC = () => {
     setSearchQuery(query);
   };
 
-  // Responsive grid hesaplamaları
   const numColumns = useMemo(() => {
     if (Platform.OS === 'web') {
       return width > 1200 ? 5 : width > 768 ? 4 : 3;
@@ -255,31 +242,34 @@ const Movies: React.FC = () => {
     return width > 768 ? 3 : 2;
   }, [width]);
 
-  const handleMoviePress = useCallback((movieId: string) => {
-    router.push(`/movies/${movieId}`);
-  }, [router]);
+  const handleMoviePress = useCallback(
+    (movieId: string) => {
+      router.push(`/movies/${movieId}`);
+    },
+    [router]
+  );
 
-  const renderMovie = useCallback(({ item }: { item: ApiMovie }) => {
-    return (
-      <View 
-        style={[
-          styles.movieCardWrapper,
-          { width: `${100 / numColumns}%` }
-        ]}
-      >
-        <MovieCard
-          id={item.stream_id.toString()}
-          title={item.name}
-          year={getMovieYear(item)}
-          image={item.stream_icon || 'https://via.placeholder.com/300x200/2c3e50/ffffff?text=Movie'}
-          category={item.category_id}
-          rating={item.rating}
-          rating_5based={item.rating_5based}
-          onPress={handleMoviePress}
-        />
-      </View>
-    );
-  }, [numColumns, handleMoviePress]);
+  const renderMovie = useCallback(
+    ({ item }: { item: ApiMovie }) => {
+      return (
+        <View style={[styles.movieCardWrapper, { width: `${100 / numColumns}%` }]}>
+          <MovieCard
+            id={item.stream_id.toString()}
+            title={item.name}
+            year={getMovieYear(item)}
+            image={
+              item.stream_icon || 'https://via.placeholder.com/300x200/2c3e50/ffffff?text=Movie'
+            }
+            category={item.category_id}
+            rating={item.rating}
+            rating_5based={item.rating_5based}
+            onPress={handleMoviePress}
+          />
+        </View>
+      );
+    },
+    [numColumns, handleMoviePress]
+  );
 
   const keyExtractor = useCallback((item: ApiMovie) => item.stream_id.toString(), []);
 
@@ -303,6 +293,13 @@ const Movies: React.FC = () => {
       <View style={styles.container}>
         <View style={styles.center}>
           <Text style={styles.errorText}>❌ {error}</Text>
+          <TouchableOpacity
+            style={styles.backToHomeButton}
+            onPress={() => router.push('/')}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.backToHomeText}>Ana Sayfaya Dön</Text>
+          </TouchableOpacity>
         </View>
       </View>
     );
@@ -314,7 +311,11 @@ const Movies: React.FC = () => {
       <View style={styles.content}>
         <View style={[styles.sidebar, { width: Math.min(Math.max(width * 0.26, 180), 320) }]}>
           <View style={styles.backRow}>
-            <TouchableOpacity style={styles.backButton} onPress={() => router.back()} activeOpacity={0.8}>
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={() => router.back()}
+              activeOpacity={0.8}
+            >
               <Ionicons name="chevron-back" size={20} color="#94a3b8" />
             </TouchableOpacity>
             <Text style={styles.backLabel}>Filmler</Text>
@@ -362,7 +363,7 @@ const Movies: React.FC = () => {
                   ? '⭐ Henüz favori film eklemediniz'
                   : searchQuery
                   ? `"${searchQuery}" için sonuç bulunamadı`
-                  : '🎬 Bu kategoride film bulunamadı'}
+                  : '🎬 Bu kategoride film bulunamadı. Lütfen ana sayfadan güncelleme yapın.'}
               </Text>
             </View>
           ) : (
@@ -373,7 +374,10 @@ const Movies: React.FC = () => {
               numColumns={numColumns}
               columnWrapperStyle={
                 numColumns > 1
-                  ? [styles.movieRow, Platform.OS === 'web' ? styles.movieRowWide : styles.movieRowCompact]
+                  ? [
+                      styles.movieRow,
+                      Platform.OS === 'web' ? styles.movieRowWide : styles.movieRowCompact,
+                    ]
                   : undefined
               }
               contentContainerStyle={styles.moviesGrid}
@@ -440,9 +444,8 @@ const styles = StyleSheet.create({
     color: '#e61919',
     fontSize: 14,
     letterSpacing: 0.6,
-    marginBottom: 12,   
+    marginBottom: 12,
     fontFamily: fonts.bold,
-   
   },
   catalogWrapper: {
     flex: 1,
@@ -525,6 +528,19 @@ const styles = StyleSheet.create({
   },
   errorText: {
     color: '#ef4444',
+    fontSize: 16,
+    fontFamily: fonts.semibold,
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  backToHomeButton: {
+    backgroundColor: 'rgba(99, 102, 241, 0.9)',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+  },
+  backToHomeText: {
+    color: '#fff',
     fontSize: 16,
     fontFamily: fonts.semibold,
   },

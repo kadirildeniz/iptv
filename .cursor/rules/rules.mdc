@@ -1,0 +1,62 @@
+---
+alwaysApply: true
+---
+
+# IPTV Projesi - Cursor AI Kuralları (ZORUNLU UYULACAK!)
+
+Bu proje React Native + Expo + TypeScript + WatermelonDB ile yazılıyor.
+Aşağıdaki kurallara %100 uyulacak. Hiçbir zaman bu kuralların dışına çıkma!
+
+## 1. Asla Çalışan Kodu BozMA!
+- Mevcut çalışan hiçbir fonksiyonu, componenti, route’u, database işlemini silme/değiştirme.
+- Sadece kullanıcı açıkça "bunu değiştir", "yeniden yaz", "sil" derse dokun.
+- Eğer bir şey ekliyorsan, mevcut kodla çakışmayacak şekilde yap.
+
+## 2. Sadece Kullanıcı Ne İstiyorsa Onu Yap
+- Kullanıcı "şu özelliği ekle" diyorsa → sadece o özelliği ekle.
+- Kullanıcı "şunu düzelt" diyorsa → sadece o hatayı düzelt.
+- Kendiliğinden "bence şöyle daha iyi olur" diye bir şey önerme veya değiştirme YAPMA!
+
+## 3. WatermelonDB Kuralları (ÇOK ÖNEMLİ!)
+- Database asla Expo Go’da çalışmaz → sadece dev client (npx expo run:android/ios) ile test edilir.
+- schema.ts’de version sadece kullanıcı izin verirse artırılır.
+- migrations asla boş array olarak verilmez → ya hiç yazılmaz (version 1 için) ya da schemaMigrations() ile doğru tanımlanır.
+- jsi: false → her zaman false olacak (disableJsi: true ayarlı çünkü)
+
+## 4. Expo & Native Kuralları
+- android/ios klasörleri asla manuel düzenlenmez → sadece prebuild ile oluşur.
+- app.json’daki plugins sırası ve ayarları (özellikle watermelondb plugin) ASLA değiştirilmez.
+- Yeni native module eklenirse → mutlaka dev client ile test edilir.
+
+## 5. Kod Stili & TypeScript
+- Her yeni dosya .tsx veya .ts uzantılı olacak.
+- Tüm fonksiyonlar ve componentler tip kontrollü olacak (any KESİNLİKLE yasak).
+- Console.log sadece debug amaçlı kullanılabilir → production’da kalmamalı.
+- Dosya isimleri kebab-case (örnek: continue-watching-item.tsx)
+
+## 6. Commit & Dosya Kuralları
+- Yeni dosya eklerken doğru klasöre koy:
+  src/screens/ → ekranlar
+  src/components/ → reusable componentler
+  src/db/models/ → WatermelonDB modelleri
+  src/services/ → API istekleri
+  src/hooks/ → custom hooklar
+- Mevcut dosya yapısını bozma.
+
+## 7. Test & Debug
+- Bir şey ekledikten sonra mutlaka "bu dev client ile çalışıyor mu?" diye kontrol et.
+- Hata alınırsa sadece o hatayı düzelt, başka yere dokunma.
+
+## 8. Kullanıcıya Soru Sorma Kuralları
+- Emin olmadığın yerde "bunu şöyle mi yapayım?" diye sormak serbest.
+- Ama asla kendiliğinden karar verip kodu bozma.
+
+## 9. Yasaklar (ASLA YAPMA!)
+- Çalışan bir ekranı yeniden yazma
+- Navigation yapısını bozma (expo-router kullanıyoruz)
+- package.json’a izinsiz paket ekleme
+- app.json veya app.config.ts’yi değiştirme
+- WatermelonDB ayarlarını değiştirme
+- Hermes/New Architecture ayarlarını değiştirme
+
+Bu kurallara uymazsan proje çöker. Lütfen çok dikkatli ol!

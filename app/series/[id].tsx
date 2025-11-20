@@ -15,9 +15,11 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import VideoPlayer from '@/app/components/VideoPlayer';
-import { seriesService, databaseService, type Series, type SeriesInfo, type Season, type Episode } from '@/services';
+import { databaseService, database, seriesService, storageService, type Series, type SeriesInfo, type Episode } from '@/services';
 import { fonts } from '@/theme/fonts';
+import SeriesModel from '@/services/database/models/Series';
 import apiClient from '@/services/api/client';
+import { buildSeriesUrl } from '@/services/api/endpoints';
 
 const SeriesDetail: React.FC = () => {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -27,6 +29,7 @@ const SeriesDetail: React.FC = () => {
   const [selectedSeason, setSelectedSeason] = useState<number | null>(null);
   const [selectedEpisode, setSelectedEpisode] = useState<Episode | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false); // Lazy load durumu
   const [error, setError] = useState<string | null>(null);
   const [searchCast, setSearchCast] = useState('');
   const [isPlayerVisible, setIsPlayerVisible] = useState(false);
@@ -44,33 +47,166 @@ const SeriesDetail: React.FC = () => {
       setLoading(true);
       setError(null);
 
-      // API client'a credentials'ı yükle
-      await apiClient.loadCredentials();
+      let seriesData: Series | null = null;
+      let detailsLoaded = false;
 
-      // Dizi temel bilgilerini getir
-      const seriesData = await seriesService.getSeriesById(id);
-      if (!seriesData) {
-        setError('Dizi bulunamadı');
-        return;
-      }
+      // 1. Önce DB'den çek
+      if (database) {
+        try {
+          const dbSeries = await database.get<SeriesModel>('series').query().fetch();
+          const dbSerie = dbSeries.find((s) => s.seriesId.toString() === id);
 
-      setSeries(seriesData);
-      const isFav = await databaseService.isFavorite(seriesData.series_id.toString());
-      setIsFavorite(isFav);
+          if (dbSerie) {
+            seriesData = {
+              num: 1,
+              series_id: dbSerie.seriesId,
+              name: dbSerie.name,
+              cover: dbSerie.cover || '',
+              plot: dbSerie.plot || '',
+              cast: dbSerie.cast || '',
+              director: dbSerie.director || '',
+              genre: dbSerie.genre || '',
+              releaseDate: dbSerie.releaseDate || '',
+              last_modified: dbSerie.lastModified ? dbSerie.lastModified.toISOString() : '',
+              rating: dbSerie.rating || '',
+              rating_5based: dbSerie.rating5based || 0,
+              backdrop_path: dbSerie.backdropPath ? JSON.parse(dbSerie.backdropPath) : [],
+              youtube_trailer: dbSerie.youtubeTrailer || '',
+              episode_run_time: dbSerie.episodeRunTime || '',
+              category_id: dbSerie.categoryId,
+              category_ids: dbSerie.categoryIds ? JSON.parse(dbSerie.categoryIds) : [],
+            };
 
-      // Dizi detay bilgilerini getir (sezonlar ve bölümler)
-      try {
-        const info = await seriesService.getSeriesInfo(id);
-        setSeriesInfo(info);
-        
-        // İlk sezonu otomatik seç
-        if (info.seasons && info.seasons.length > 0) {
-          setSelectedSeason(info.seasons[0].season_number);
+            setSeries(seriesData);
+            const isFav = await databaseService.isFavorite(seriesData.series_id.toString());
+            setIsFavorite(isFav);
+
+            // Detaylar (seasons/episodes) var mı kontrol et
+            if (dbSerie.seasons && dbSerie.episodes) {
+              try {
+                const seasons = JSON.parse(dbSerie.seasons);
+                const episodes = JSON.parse(dbSerie.episodes);
+
+                if (seasons && Array.isArray(seasons) && seasons.length > 0) {
+                  setSeriesInfo({
+                    info: {
+                        name: seriesData.name,
+                        cover: seriesData.cover || '',
+                        plot: seriesData.plot || '',
+                        cast: seriesData.cast || '',
+                        director: seriesData.director || '',
+                        genre: seriesData.genre || '',
+                        releaseDate: seriesData.releaseDate || '',
+                        last_modified: seriesData.last_modified || '',
+                        rating: seriesData.rating || '',
+                        rating_5based: seriesData.rating_5based || 0,
+                        backdrop_path: seriesData.backdrop_path || [],
+                        youtube_trailer: seriesData.youtube_trailer || '',
+                        episode_run_time: seriesData.episode_run_time || '',
+                        category_id: seriesData.category_id || '',
+                        category_ids: (seriesData.category_ids || []).map(id => id.toString()),
+                        tmdb_id: '',
+                    },
+                    seasons: seasons,
+                    episodes: episodes || {},
+                  });
+
+                  setSelectedSeason(seasons[0].season_number);
+                  detailsLoaded = true;
+                  console.log('✅ Dizi detayları cache\'den (DB) yüklendi');
+                }
+              } catch (parseError) {
+                console.warn('JSON parse hatası:', parseError);
+              }
+            }
+          }
+        } catch (dbError) {
+          console.warn('Database read error:', dbError);
         }
-      } catch (err) {
-        console.warn('Dizi detay bilgileri yüklenemedi:', err);
-        // Detay bilgileri yüklenemese bile devam et
       }
+
+      // 2. Detaylar yoksa API'den çek (Lazy Load)
+      if (!detailsLoaded) {
+        console.log('⏳ Detaylar eksik, API\'den çekiliyor (Lazy Load)...');
+        setRefreshing(true);
+
+        try {
+            // Eğer temel veri bile yoksa fallback olarak API'den çek
+            if (!seriesData) {
+                seriesData = await seriesService.getSeriesById(id);
+                if (seriesData) {
+                    setSeries(seriesData);
+                    const isFav = await databaseService.isFavorite(seriesData.series_id.toString());
+                    setIsFavorite(isFav);
+                }
+            }
+
+            if (seriesData) {
+                // Detayları çek
+                const apiSeriesInfo = await seriesService.getSeriesInfo(id);
+                
+                // URL'leri ekle
+                const credentials = await storageService.getCredentials();
+                const baseUrl = await storageService.getItem('baseUrl');
+                
+                let episodesWithUrls = apiSeriesInfo.episodes;
+
+                if (credentials && baseUrl) {
+                    const fullBaseUrl = `${credentials.protocol || 'http'}://${baseUrl}`;
+                    episodesWithUrls = {};
+                    
+                    Object.keys(apiSeriesInfo.episodes).forEach((seasonKey) => {
+                        episodesWithUrls[seasonKey] = apiSeriesInfo.episodes[seasonKey].map((episode: any) => ({
+                            ...episode,
+                            streamUrl: buildSeriesUrl(
+                                baseUrl,
+                                credentials.username,
+                                credentials.password,
+                                episode.id,
+                                episode.container_extension || 'mp4'
+                            ),
+                        }));
+                    });
+                }
+
+                const finalSeriesInfo = {
+                    ...apiSeriesInfo,
+                    episodes: episodesWithUrls
+                };
+
+                setSeriesInfo(finalSeriesInfo);
+                if (finalSeriesInfo.seasons && finalSeriesInfo.seasons.length > 0) {
+                    setSelectedSeason(finalSeriesInfo.seasons[0].season_number);
+                }
+
+                // 3. Gelen detayları DB'ye kaydet (Cache Update)
+                if (database) {
+                    const dbSeries = await database.get<SeriesModel>('series').query().fetch();
+                    const localSerie = dbSeries.find(s => s.seriesId.toString() === id);
+
+                    if (localSerie) {
+                        await database.write(async () => {
+                            await localSerie.update(s => {
+                                s.seasons = JSON.stringify(finalSeriesInfo.seasons || []);
+                                s.episodes = JSON.stringify(finalSeriesInfo.episodes || {});
+                                // İstersen diğer detayları da güncelle
+                                s.cachedAt = new Date();
+                            });
+                        });
+                        console.log('💾 Detaylar DB\'ye kaydedildi (Cache Updated)');
+                    }
+                }
+            } else {
+                setError('Dizi bulunamadı. Lütfen daha sonra tekrar deneyin.');
+            }
+        } catch (apiError) {
+            console.error('Lazy load error:', apiError);
+            // Hata olsa bile temel verilerle göstermeye devam et (veya hata mesajı göster)
+        } finally {
+            setRefreshing(false);
+        }
+      }
+
     } catch (err) {
       console.error('Dizi yüklenirken hata:', err);
       setError('Dizi yüklenirken bir hata oluştu');
@@ -81,8 +217,7 @@ const SeriesDetail: React.FC = () => {
 
   const formatDuration = (duration: string | number | undefined): string => {
     if (!duration) return 'Bilinmiyor';
-    
-    // Saniye cinsinden geliyorsa dakika/saat'e çevir
+
     const seconds = typeof duration === 'string' ? parseInt(duration) : duration;
     if (!isNaN(seconds) && seconds > 0) {
       const hours = Math.floor(seconds / 3600);
@@ -92,14 +227,13 @@ const SeriesDetail: React.FC = () => {
       }
       return `${minutes}dk`;
     }
-    
+
     return typeof duration === 'string' ? duration : 'Bilinmiyor';
   };
 
   const formatDate = (dateString: string | undefined): string => {
     if (!dateString) return 'Bilinmiyor';
-    
-    // YYYY-MM-DD formatında ise
+
     if (dateString.match(/^\d{4}-\d{2}-\d{2}/)) {
       const date = new Date(dateString);
       return date.toLocaleDateString('tr-TR', {
@@ -108,12 +242,11 @@ const SeriesDetail: React.FC = () => {
         day: 'numeric',
       });
     }
-    
-    // Sadece yıl varsa
+
     if (dateString.match(/^\d{4}$/)) {
       return dateString;
     }
-    
+
     return dateString;
   };
 
@@ -135,8 +268,7 @@ const SeriesDetail: React.FC = () => {
 
     try {
       setIsTogglingFavorite(true);
-      
-      // Poster bilgisini al
+
       const baseInfo = (seriesInfo?.info || {}) as any;
       const poster =
         baseInfo.cover_big ||
@@ -151,7 +283,6 @@ const SeriesDetail: React.FC = () => {
         cover: poster,
       });
       setIsFavorite(next);
-      console.log(`✅ Favori ${next ? 'eklendi' : 'çıkarıldı'}: ${series.name}`);
     } catch (favoriteError) {
       console.error('Favori güncelleme hatası:', favoriteError);
     } finally {
@@ -168,6 +299,10 @@ const SeriesDetail: React.FC = () => {
         </View>
       </SafeAreaView>
     );
+  }
+
+  if (!series && !error) {
+      return null;
   }
 
   if (!series || error) {
@@ -198,12 +333,12 @@ const SeriesDetail: React.FC = () => {
   const genres = baseInfo.genre
     ? String(baseInfo.genre)
         .split(/[,|]/)
-        .map((g) => g.trim())
+        .map((g: string) => g.trim())
         .filter(Boolean)
     : series.genre
     ? String(series.genre)
         .split(/[,|]/)
-        .map((g) => g.trim())
+        .map((g: string) => g.trim())
         .filter(Boolean)
     : [];
 
@@ -302,7 +437,7 @@ const SeriesDetail: React.FC = () => {
               </Text>
 
               <View style={styles.heroActions}>
-                {selectedSeason !== null && episodes.length > 0 && episodes[0].streamUrl ? (
+                {seriesInfo && seriesInfo.seasons && seriesInfo.seasons.length > 0 && selectedSeason !== null && episodes.length > 0 && episodes[0]?.streamUrl ? (
                   <TouchableOpacity
                     style={styles.playButton}
                     activeOpacity={0.9}
@@ -311,12 +446,16 @@ const SeriesDetail: React.FC = () => {
                     <Ionicons name="play" size={18} color="#ffffff" style={{ marginRight: 8 }} />
                     <Text style={styles.playButtonText}>İlk Bölümü İzle</Text>
                   </TouchableOpacity>
-                ) : (
+                ) : seriesInfo && seriesInfo.seasons && seriesInfo.seasons.length === 0 ? (
                   <TouchableOpacity style={[styles.playButton, styles.playButtonDisabled]} activeOpacity={0.9} disabled>
                     <Ionicons name="play" size={18} color="#ffffff" style={{ marginRight: 8 }} />
                     <Text style={styles.playButtonText}>Bölüm Bulunamadı</Text>
                   </TouchableOpacity>
-                )}
+                ) : loading || refreshing ? (
+                  <View style={[styles.playButton, styles.playButtonDisabled, { justifyContent: 'center', alignItems: 'center' }]}>
+                    <ActivityIndicator size="small" color="#ffffff" />
+                  </View>
+                ) : null}
                 {ratingValue && (
                   <View style={styles.ratingBadge}>
                     <Ionicons name="star" size={16} color="#0f172a" style={{ marginRight: 6 }} />
@@ -329,6 +468,14 @@ const SeriesDetail: React.FC = () => {
         </View>
 
         <View style={styles.body}>
+          {/* Lazy Load Yükleniyor Göstergesi */}
+          {refreshing && !description && (
+             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
+                <ActivityIndicator size="small" color="#0ea5e9" style={{ marginRight: 10 }}/>
+                <Text style={{ color: '#94a3b8', fontSize: 13 }}>Detaylar yükleniyor...</Text>
+             </View>
+          )}
+
           {description && (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Özet</Text>
@@ -401,11 +548,16 @@ const SeriesDetail: React.FC = () => {
                           {formatDuration(episode.info.duration_secs)}
                         </Text>
                       )}
+                      {!episode.streamUrl && (
+                        <Text style={styles.episodeWarning}>
+                          Oynatılamıyor - Lütfen senkronize edin
+                        </Text>
+                      )}
                     </View>
                     {episode.streamUrl ? (
                       <Ionicons name="play-circle" size={28} color="#0ea5e9" />
                     ) : (
-                      <Ionicons name="lock-closed" size={28} color="#64748b" />
+                      <Ionicons name="refresh-circle" size={28} color="#64748b" />
                     )}
                   </TouchableOpacity>
                 ))}
@@ -602,6 +754,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(245, 158, 11, 0.6)',
   },
+  ratingIcon: {
+    color: '#0f172a',
+    fontSize: 16,
+    marginRight: 6,
+  },
   ratingText: {
     color: '#0f172a',
     fontSize: 14,
@@ -755,6 +912,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: 'rgba(255, 255, 255, 0.5)',
     fontFamily: fonts.regular,
+  },
+  episodeWarning: {
+    fontSize: 11,
+    color: '#fbbf24',
+    fontFamily: fonts.medium,
+    marginTop: 4,
   },
   castSearch: {
     flexDirection: 'row',

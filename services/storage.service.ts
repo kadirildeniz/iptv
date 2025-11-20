@@ -4,6 +4,7 @@ const KEYS = {
   SETTINGS: 'settings',
   THEME: 'theme',
   CREDENTIALS: 'xtream_credentials',
+  FIRST_LOGIN: 'first_login_completed',
 };
 
 class StorageService {
@@ -137,8 +138,46 @@ class StorageService {
       throw error;
     }
   }
+
+  /**
+   * İlk giriş tamamlandı mı kontrol et
+   */
+  async isFirstLoginCompleted(): Promise<boolean> {
+    try {
+      const completed = await this.getItem<boolean>(KEYS.FIRST_LOGIN);
+      return completed === true;
+    } catch (error) {
+      console.error('❌ First login check error:', error);
+      return false;
+    }
+  }
+
+  /**
+   * İlk giriş tamamlandı olarak işaretle
+   */
+  async markFirstLoginCompleted(): Promise<void> {
+    try {
+      await this.setItem(KEYS.FIRST_LOGIN, true);
+      console.log('✅ First login marked as completed');
+    } catch (error) {
+      console.error('❌ Mark first login error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * İlk giriş durumunu sıfırla (test/debug için)
+   */
+  async resetFirstLogin(): Promise<void> {
+    try {
+      await this.removeItem(KEYS.FIRST_LOGIN);
+      console.log('✅ First login status reset');
+    } catch (error) {
+      console.error('❌ Reset first login error:', error);
+      throw error;
+    }
+  }
 }
 
 export default new StorageService();
-
 

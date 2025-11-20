@@ -20,6 +20,8 @@ export default class Series extends Model {
   @text('episode_run_time') episodeRunTime?: string;
   @text('category_id') categoryId!: string;
   @text('category_ids') categoryIds?: string;
+  @text('seasons') seasons?: string; // JSON string - Season[]
+  @text('episodes') episodes?: string; // JSON string - {[seasonNumber: string]: Episode[]}
   @date('cached_at') cachedAt!: Date;
 }
 

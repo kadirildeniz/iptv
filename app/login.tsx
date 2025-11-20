@@ -78,10 +78,10 @@ export default function LoginScreen() {
 
       console.log('🔐 Login attempt:', { host, port, username, iptvName });
       
-      // API ile giriş yap
+      // API ile giriş yap (bu zaten apiClient.saveCredentials yapıyor)
       const accountInfo = await authService.login(credentials);
       
-      // Credentials'ları kaydet (IP TV ismi ile birlikte)
+      // Ek olarak IP TV ismini ve diğer bilgileri storageService'e kaydet
       await storageService.saveCredentials({
         host: credentials.host,
         port: credentials.port,
@@ -91,7 +91,21 @@ export default function LoginScreen() {
         protocol: credentials.protocol,
       });
       
-      Alert.alert('Başarılı', 'Giriş yapıldı!', [
+      // Base URL'i de kaydet (sync service için gerekli)
+      const baseUrl = `${credentials.host}${credentials.port ? ':' + credentials.port : ''}`;
+      await storageService.setItem('baseUrl', baseUrl);
+      
+      // İlk giriş kontrolü
+      const isFirstLogin = !(await storageService.isFirstLoginCompleted());
+      
+      if (isFirstLogin) {
+        console.log('ℹ️ İlk giriş tespit edildi.');
+        // İlk girişte otomatik sync yapılmayacak, kullanıcı ana sayfadan manuel yapacak
+        // Ancak flag'i işaretleyelim ki tekrar sormasın
+        await storageService.markFirstLoginCompleted();
+      }
+      
+      Alert.alert('Başarılı', 'Giriş yapıldı! Lütfen ana sayfadaki "Tüm Verileri Güncelle" butonuna basarak içerikleri indirin.', [
         {
           text: 'Tamam',
           onPress: () => router.replace('/'),
@@ -423,4 +437,3 @@ const styles = StyleSheet.create({
     letterSpacing: 0.4,
   },
 });
-

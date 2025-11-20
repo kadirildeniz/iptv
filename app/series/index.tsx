@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -12,12 +12,12 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useRouter, Redirect } from 'expo-router';
-import { useFocusEffect } from '@react-navigation/native';
 import { fonts } from '@/theme/fonts';
 import CategoryList from '@/app/components/CategoryList';
 import SeriesCard from '@/app/components/SeriesCard';
-import { seriesService, databaseService, storageService, syncService, database, type SeriesCategory, type Series as ApiSeries } from '@/services';
+import { databaseService, storageService, database, type Series as ApiSeries } from '@/services';
 import SeriesModel from '@/services/database/models/Series';
+import SeriesCategoryModel from '@/services/database/models/SeriesCategory';
 import apiClient from '@/services/api/client';
 
 interface UICategory {
@@ -43,17 +43,11 @@ const Series: React.FC = () => {
     initialize();
   }, []);
 
-  useFocusEffect(
-    useCallback(() => {
-      loadFavorites();
-    }, [])
-  );
-
   useEffect(() => {
     if (selectedCategory) {
       loadSeries(selectedCategory);
     }
-  }, [selectedCategory]); // favorites dependency'sini kaldırdık - sadece kategori değiştiğinde yükle
+  }, [selectedCategory]);
 
   const initialize = async () => {
     try {
@@ -67,12 +61,10 @@ const Series: React.FC = () => {
         return;
       }
 
-      // API client'a credentials'ı yükle
       await apiClient.loadCredentials();
 
       await loadFavorites();
       await loadCategories();
-      // Sync loadSeries içinde tetikleniyor, burada tekrar çağırmaya gerek yok
     } catch (err) {
       console.error('Series init error:', err);
       setError('Bir hata oluştu');
@@ -84,9 +76,7 @@ const Series: React.FC = () => {
   const loadFavorites = useCallback(async () => {
     try {
       const storedFavorites = await databaseService.getFavorites();
-      const favIds = storedFavorites
-        .filter((f) => f.type === 'series')
-        .map((f) => f.id);
+      const favIds = storedFavorites.filter((f) => f.type === 'series').map((f) => f.id);
       setFavorites(new Set(favIds));
       console.log(`✅ Favori diziler yüklendi: ${favIds.length} adet`);
     } catch (err) {
@@ -96,171 +86,174 @@ const Series: React.FC = () => {
 
   const loadCategories = async () => {
     try {
-      // Önce AsyncStorage'dan kategorileri kontrol et
-      const cachedCategories = await storageService.getItem<UICategory[]>('SERIES_CATEGORIES');
-      
-      if (cachedCategories && cachedCategories.length > 0) {
-        const withSpecial: UICategory[] = [
-          { id: 'all', name: '📺 TÜM' },
-          { id: 'favorites', name: '⭐ FAVORİLERİM' },
-          ...cachedCategories,
-        ];
-        setCategories(withSpecial);
-        setSelectedCategory('all');
+      setLoading(true);
+      setError(null);
+
+      if (!database) {
+        console.error('❌ Veritabanı başlatılamadı');
+        setError('Veritabanı başlatılamadı. Lütfen uygulamayı yeniden başlatın.');
+        setLoading(false);
         return;
       }
 
-      // Eğer cache'de yoksa, API'den çek (sadece ilk kez)
-      const apiCategories = await seriesService.getCategories();
-      
-      const formatted: UICategory[] = apiCategories.map((c: SeriesCategory) => ({
-        id: c.category_id,
-        name: c.category_name,
-      }));
+      const dbCategories = await database.get<SeriesCategoryModel>('series_categories').query().fetch();
+      let formattedCategories: UICategory[] = [];
 
-      // AsyncStorage'a kaydet
-      await storageService.setItem('SERIES_CATEGORIES', formatted);
+      if (dbCategories.length > 0) {
+        const uniqueMap = new Map<string, UICategory>();
+        dbCategories.forEach((record) => {
+          if (!uniqueMap.has(record.categoryId)) {
+            uniqueMap.set(record.categoryId, {
+              id: record.categoryId,
+              name: record.categoryName,
+            });
+          }
+        });
+        formattedCategories = Array.from(uniqueMap.values());
+        console.log(`✅ ${formattedCategories.length} dizi kategorisi DB'den yüklendi`);
+      } else {
+        console.log('⚠️ Dizi kategorileri bulunamadı. Lütfen ana sayfadan "Güncelle" butonuna basın.');
+        setError('Kategoriler bulunamadı. Lütfen ana sayfadan "Tüm Verileri Güncelle" butonuna basarak verileri indirin.');
+        setLoading(false);
+        return;
+      }
+
+      const filteredCategories = formattedCategories.filter(
+        (cat) => cat.id !== 'all' && cat.id !== 'favorites'
+      );
 
       const withSpecial: UICategory[] = [
         { id: 'all', name: '📺 TÜM' },
         { id: 'favorites', name: '⭐ FAVORİLERİM' },
-        ...formatted,
+        ...filteredCategories,
       ];
 
       setCategories(withSpecial);
       setSelectedCategory('all');
     } catch (err) {
-      console.error('Series categories load error:', err);
-      setError('Kategoriler yüklenemedi');
+      console.error('❌ Dizi kategorileri yükleme hatası:', err);
+      setError('Beklenmeyen bir hata oluştu. Lütfen tekrar deneyin.');
+    } finally {
+      setLoading(false);
     }
   };
 
   const loadSeries = async (categoryId: string) => {
     try {
       setLoadingSeries(true);
+
+      if (!database) {
+        console.error('❌ Veritabanı başlatılamadı');
+        setSeries([]);
+        setLoadingSeries(false);
+        return;
+      }
+
+      const dbSeries = await database.get<SeriesModel>('series').query().fetch();
+
+      if (dbSeries.length === 0) {
+        console.log('⚠️ Diziler bulunamadı. Lütfen ana sayfadan "Güncelle" butonuna basın.');
+        setSeries([]);
+        setLoadingSeries(false);
+        return;
+      }
+
+      const dbSeriesFormatted: ApiSeries[] = dbSeries.map((s, index) => ({
+        num: index + 1,
+        series_id: s.seriesId,
+        name: s.name,
+        cover: s.cover || '',
+        plot: s.plot || '',
+        cast: s.cast || '',
+        director: s.director || '',
+        genre: s.genre || '',
+        releaseDate: s.releaseDate || '',
+        last_modified: s.lastModified ? s.lastModified.toISOString() : '',
+        rating: s.rating || '',
+        rating_5based: s.rating5based || 0,
+        backdrop_path: s.backdropPath ? JSON.parse(s.backdropPath) : [],
+        youtube_trailer: s.youtubeTrailer || '',
+        episode_run_time: s.episodeRunTime || '',
+        category_id: s.categoryId,
+        category_ids: s.categoryIds ? JSON.parse(s.categoryIds) : [],
+      }));
+
       let apiSeries: ApiSeries[] = [];
+      if (categoryId === 'all') {
+        apiSeries = dbSeriesFormatted;
+      } else if (categoryId === 'favorites') {
+        apiSeries = dbSeriesFormatted.filter((s) => favorites.has(s.series_id.toString()));
+      } else {
+        apiSeries = dbSeriesFormatted.filter(
+          (s) =>
+            s.category_id === categoryId ||
+            (s.category_ids && s.category_ids.includes(parseInt(categoryId)))
+        );
+      }
 
-      // SWR Stratejisi: Önce database'den çek (stale data)
-      if (database) {
-        try {
-          const dbSeries = await database
-            .get<SeriesModel>('series')
-            .query()
-            .fetch();
+      setSeries(apiSeries);
+      console.log(`✅ ${apiSeries.length} dizi veritabanından yüklendi`);
 
-          // Database'den gelen veriyi API formatına çevir
-          const dbSeriesFormatted: ApiSeries[] = dbSeries.map((s, index) => ({
-            num: index + 1,
-            series_id: s.seriesId,
-            name: s.name,
-            cover: s.cover || '',
-            plot: s.plot || '',
-            cast: s.cast || '',
-            director: s.director || '',
-            genre: s.genre || '',
-            releaseDate: s.releaseDate || '',
-            last_modified: s.lastModified ? s.lastModified.toISOString() : '',
-            rating: s.rating || '',
-            rating_5based: s.rating5based || 0,
-            backdrop_path: s.backdropPath ? JSON.parse(s.backdropPath) : [],
-            youtube_trailer: s.youtubeTrailer || '',
-            episode_run_time: s.episodeRunTime || '',
-            category_id: s.categoryId,
-            category_ids: s.categoryIds ? JSON.parse(s.categoryIds) : [],
-          }));
-
-          // Kategoriye göre filtrele
-          if (categoryId === 'all') {
-            apiSeries = dbSeriesFormatted;
-          } else if (categoryId === 'favorites') {
-            apiSeries = dbSeriesFormatted.filter((s) =>
-              favorites.has(s.series_id.toString())
-            );
-          } else {
-            apiSeries = dbSeriesFormatted.filter((s) =>
-              s.category_id === categoryId || 
-              (s.category_ids && s.category_ids.includes(parseInt(categoryId)))
-            );
-          }
-
-          // Veriyi hemen göster (sadece database'den)
-          setSeries(apiSeries);
-          
-          // Sezon sayılarını işle (database'den gelen veri için)
-          const seasonsMap = new Map<string, number>();
-          apiSeries.forEach((s) => {
-            const seriesId = s.series_id.toString();
-            const seasons = (s as any).seasons;
+      // Sezon sayılarını işle
+      const seasonsMap = new Map<string, number>();
+      dbSeries.forEach((s) => {
+        const seriesId = s.seriesId.toString();
+        if (s.seasons) {
+          try {
+            const seasons = JSON.parse(s.seasons);
             if (Array.isArray(seasons) && seasons.length > 0) {
               seasonsMap.set(seriesId, seasons.length);
             }
-          });
-          if (seasonsMap.size > 0) {
-            setSeasonsCount((prev) => {
-              const newMap = new Map(prev);
-              seasonsMap.forEach((count, id) => {
-                newMap.set(id, count);
-              });
-              return newMap;
-            });
+          } catch (e) {
+            console.warn(`⚠️ Sezon parse hatası: ${seriesId}`);
           }
-        } catch (dbError) {
-          console.warn('Database read error:', dbError);
-          setSeries([]);
         }
-      } else {
-        // Database yoksa boş liste göster
-        setSeries([]);
-      }
-
-      // Arka planda sync tetikle (UI'ı bloke etmeden) - sadece "all" kategorisinde
-      // SyncService zaten zaman damgası kontrolü yapıyor, gereksiz istek atmıyor
-      if (categoryId === 'all') {
-        syncService.checkAndRunSync('series').catch(err => {
-          console.error('Background sync error:', err);
-        });
+      });
+      if (seasonsMap.size > 0) {
+        setSeasonsCount(seasonsMap);
       }
     } catch (err) {
       console.error('Series load error:', err);
       setSeries([]);
     } finally {
-      setLoadingSeries(false); // Her durumda loading'i kapat
+      setLoadingSeries(false);
     }
   };
 
-  const handleToggleFavorite = useCallback(async (seriesId: string) => {
-    try {
-      const seriesItem = series.find((s) => s.series_id.toString() === seriesId);
-      if (!seriesItem) return;
+  const handleToggleFavorite = useCallback(
+    async (seriesId: string) => {
+      try {
+        const seriesItem = series.find((s) => s.series_id.toString() === seriesId);
+        if (!seriesItem) return;
 
-      const next = await databaseService.toggleFavorite({
-        id: seriesId,
-        type: 'series',
-        title: seriesItem.name,
-        cover: seriesItem.cover || '',
-      });
+        const next = await databaseService.toggleFavorite({
+          id: seriesId,
+          type: 'series',
+          title: seriesItem.name,
+          cover: seriesItem.cover || '',
+        });
 
-      // Favori listesini güncelle
-      setFavorites((prev) => {
-        const newSet = new Set(prev);
-        if (next) {
-          newSet.add(seriesId);
-        } else {
-          newSet.delete(seriesId);
+        setFavorites((prev) => {
+          const newSet = new Set(prev);
+          if (next) {
+            newSet.add(seriesId);
+          } else {
+            newSet.delete(seriesId);
+          }
+          return newSet;
+        });
+
+        if (selectedCategory === 'favorites') {
+          loadSeries('favorites');
         }
-        return newSet;
-      });
 
-      // Eğer "favorites" kategorisindeyse, listeyi yeniden yükle
-      if (selectedCategory === 'favorites') {
-        loadSeries('favorites');
+        console.log(`✅ Favori ${next ? 'eklendi' : 'çıkarıldı'}: ${seriesItem.name}`);
+      } catch (err) {
+        console.error('Favori güncelleme hatası:', err);
       }
-
-      console.log(`✅ Favori ${next ? 'eklendi' : 'çıkarıldı'}: ${seriesItem.name}`);
-    } catch (err) {
-      console.error('Favori güncelleme hatası:', err);
-    }
-  }, [series]);
+    },
+    [series, selectedCategory]
+  );
 
   const filteredSeries = useMemo(() => {
     let filtered = series;
@@ -279,11 +272,13 @@ const Series: React.FC = () => {
     setSearchQuery(query);
   };
 
-  const handleSeriesPress = useCallback((seriesId: string) => {
-    router.push(`/series/${seriesId}`);
-  }, [router]);
+  const handleSeriesPress = useCallback(
+    (seriesId: string) => {
+      router.push(`/series/${seriesId}`);
+    },
+    [router]
+  );
 
-  // Responsive grid hesaplamaları
   const numColumns = useMemo(() => {
     if (Platform.OS === 'web') {
       return width > 1200 ? 5 : width > 768 ? 4 : 3;
@@ -291,40 +286,36 @@ const Series: React.FC = () => {
     return width > 768 ? 3 : 2;
   }, [width]);
 
-  const renderSeries = useCallback(({ item }: { item: ApiSeries }) => {
-    const seriesId = item.series_id.toString();
-    // Önce state'ten kontrol et, yoksa API'den gelen datadan al
-    let seasons = seasonsCount.get(seriesId);
-    if (seasons === undefined) {
-      // API'den gelen datada seasons array'i varsa onu kullan
-      const seasonsArray = (item as any).seasons;
-      if (Array.isArray(seasonsArray) && seasonsArray.length > 0) {
-        seasons = seasonsArray.length;
+  const renderSeries = useCallback(
+    ({ item }: { item: ApiSeries }) => {
+      const seriesId = item.series_id.toString();
+      let seasons = seasonsCount.get(seriesId);
+      if (seasons === undefined) {
+        const seasonsArray = (item as any).seasons;
+        if (Array.isArray(seasonsArray) && seasonsArray.length > 0) {
+          seasons = seasonsArray.length;
+        }
       }
-    }
-    const isFavorite = favorites.has(seriesId);
-    
-    return (
-      <View 
-        style={[
-          styles.seriesCardWrapper,
-          { width: `${100 / numColumns}%` }
-        ]}
-      >
-        <SeriesCard
-          id={seriesId}
-          title={item.name}
-          year={item.releaseDate || ''}
-          image={item.cover || 'https://via.placeholder.com/300x200/2c3e50/ffffff?text=Series'}
-          category={item.category_id}
-          seasons={seasons}
-          isFavorite={isFavorite}
-          onPress={handleSeriesPress}
-          onFavoritePress={handleToggleFavorite}
-        />
-      </View>
-    );
-  }, [numColumns, handleSeriesPress, handleToggleFavorite, seasonsCount, favorites, width]);
+      const isFavorite = favorites.has(seriesId);
+
+      return (
+        <View style={[styles.seriesCardWrapper, { width: `${100 / numColumns}%` }]}>
+          <SeriesCard
+            id={seriesId}
+            title={item.name}
+            year={item.releaseDate || ''}
+            image={item.cover || 'https://via.placeholder.com/300x200/2c3e50/ffffff?text=Series'}
+            category={item.category_id}
+            seasons={seasons}
+            isFavorite={isFavorite}
+            onPress={handleSeriesPress}
+            onFavoritePress={handleToggleFavorite}
+          />
+        </View>
+      );
+    },
+    [numColumns, handleSeriesPress, handleToggleFavorite, seasonsCount, favorites]
+  );
 
   const keyExtractor = useCallback((item: ApiSeries) => item.series_id.toString(), []);
 
@@ -348,6 +339,13 @@ const Series: React.FC = () => {
       <View style={styles.container}>
         <View style={styles.center}>
           <Text style={styles.errorText}>❌ {error}</Text>
+          <TouchableOpacity
+            style={styles.backToHomeButton}
+            onPress={() => router.push('/')}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.backToHomeText}>Ana Sayfaya Dön</Text>
+          </TouchableOpacity>
         </View>
       </View>
     );
@@ -359,7 +357,11 @@ const Series: React.FC = () => {
       <View style={styles.content}>
         <View style={[styles.sidebar, { width: Math.min(Math.max(width * 0.26, 180), 320) }]}>
           <View style={styles.backRow}>
-            <TouchableOpacity style={styles.backButton} onPress={() => router.back()} activeOpacity={0.8}>
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={() => router.back()}
+              activeOpacity={0.8}
+            >
               <Ionicons name="chevron-back" size={20} color="#94a3b8" />
             </TouchableOpacity>
             <Text style={styles.backLabel}>Diziler</Text>
@@ -407,7 +409,7 @@ const Series: React.FC = () => {
                   ? '⭐ Henüz favori dizi eklemediniz'
                   : searchQuery
                   ? `"${searchQuery}" için sonuç bulunamadı`
-                  : '📺 Bu kategoride dizi bulunamadı'}
+                  : '📺 Bu kategoride dizi bulunamadı. Lütfen ana sayfadan güncelleme yapın.'}
               </Text>
             </View>
           ) : (
@@ -418,7 +420,10 @@ const Series: React.FC = () => {
               numColumns={numColumns}
               columnWrapperStyle={
                 numColumns > 1
-                  ? [styles.seriesRow, Platform.OS === 'web' ? styles.seriesRowWide : styles.seriesRowCompact]
+                  ? [
+                      styles.seriesRow,
+                      Platform.OS === 'web' ? styles.seriesRowWide : styles.seriesRowCompact,
+                    ]
                   : undefined
               }
               contentContainerStyle={styles.seriesGrid}
@@ -488,7 +493,6 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     textTransform: 'uppercase',
     fontFamily: fonts.bold,
-  
   },
   catalogWrapper: {
     flex: 1,
@@ -568,6 +572,19 @@ const styles = StyleSheet.create({
   },
   errorText: {
     color: '#ef4444',
+    fontSize: 16,
+    fontFamily: fonts.semibold,
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  backToHomeButton: {
+    backgroundColor: 'rgba(99, 102, 241, 0.9)',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+  },
+  backToHomeText: {
+    color: '#fff',
     fontSize: 16,
     fontFamily: fonts.semibold,
   },

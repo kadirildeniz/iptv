@@ -16,6 +16,20 @@ export default class Movie extends Model {
   @text('container_extension') containerExtension?: string;
   @text('custom_sid') customSid?: string;
   @text('direct_source') directSource?: string;
+  
+  // Detay bilgileri
+  @text('plot') plot?: string;
+  @text('cast') cast?: string;
+  @text('director') director?: string;
+  @text('genre') genre?: string;
+  @text('release_date') releaseDate?: string;
+  @text('duration') duration?: string;
+  @text('duration_secs') durationSecs?: string;
+  @text('backdrop_path') backdropPath?: string;
+  @text('youtube_trailer') youtubeTrailer?: string;
+  @text('tmdb_id') tmdbId?: string;
+  @text('country') country?: string;
+  @text('age_rating') ageRating?: string;
+  
   @date('cached_at') cachedAt!: Date;
 }
-
