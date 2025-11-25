@@ -1,6 +1,7 @@
-import { Image, ImageSourcePropType, StyleProp, StyleSheet, Text, TouchableOpacity, View, ViewStyle, Animated } from 'react-native';
+import { Image, ImageSourcePropType, StyleProp, StyleSheet, Text, TouchableOpacity, View, ViewStyle, Animated, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useRef } from 'react';
+import { getDeviceType, getResponsiveFontSize } from '@/utils/responsive';
 
 interface CardComponentProps {
   title: string;
@@ -13,6 +14,8 @@ interface CardComponentProps {
 
 const CardComponent = ({ title, description, image, style, onUpdatePress, isUpdating }: CardComponentProps) => {
   const rotateAnim = useRef(new Animated.Value(0)).current;
+  const { width } = useWindowDimensions();
+  const deviceType = getDeviceType(width);
 
   useEffect(() => {
     if (isUpdating) {
@@ -34,51 +37,55 @@ const CardComponent = ({ title, description, image, style, onUpdatePress, isUpda
     outputRange: ['0deg', '360deg'],
   });
 
+  // Responsive değerler
+  const titleFontSize = getResponsiveFontSize(width, deviceType === 'mobile' ? 24 : 28);
+  const descriptionFontSize = getResponsiveFontSize(width, deviceType === 'mobile' ? 16 : 18);
+  const iconSize = deviceType === 'mobile' ? 40 : 50;
+  const cardPadding = deviceType === 'mobile' ? 8 : 30;
+  const cardPaddingTop = deviceType === 'mobile' ? 50 : 80;
+
   return (
-    <View style={[styles.cardContainer, style]}>
+    <View style={[styles.cardContainer, { padding: cardPadding, paddingTop: cardPaddingTop }, style]}>
       {onUpdatePress && (
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.updateButton}
           onPress={onUpdatePress}
           disabled={isUpdating}
           activeOpacity={0.7}
         >
           <Animated.View style={{ transform: [{ rotate: rotation }] }}>
-            <Ionicons 
-              name={isUpdating ? "refresh" : "refresh-outline"} 
-              size={20} 
+            <Ionicons
+              name={isUpdating ? "refresh" : "refresh-outline"}
+              size={20}
               color="#fff"
             />
           </Animated.View>
         </TouchableOpacity>
       )}
-      <Image source={image} style={styles.cardImage} />
-      <Text style={styles.cardTitle}>{title}</Text>
-      <Text style={styles.cardDescription}>{description}</Text>
+      <Image source={image} style={[styles.cardImage, { width: iconSize, height: iconSize }]} />
+      <Text style={[styles.cardTitle, { fontSize: titleFontSize }]}>{title}</Text>
+      <Text style={[styles.cardDescription, { fontSize: descriptionFontSize }]}>{description}</Text>
     </View>
   )
 }
 
 const styles = StyleSheet.create({
   cardContainer: {
-    paddingTop: 100,
-    padding: 30,
     borderRadius: 10,
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.2)',
-    marginTop: 20,
     width: '100%',
     position: 'relative',
   },
   updateButton: {
     position: 'absolute',
-    top: 15,
-    right: 15,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    top: 10,
+    right: 10,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(99, 102, 241, 0.9)',
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
@@ -86,21 +93,24 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   cardTitle: {
-    fontSize: 20,
-    fontWeight: '600',
+    fontWeight: '700',
     color: '#fff',
-    marginTop: 10,
+    marginTop: 12,
+    textShadowColor: 'rgba(0, 0, 0, 0.75)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 4,
   },
   cardImage: {
-    width: 30,
-    height: 30,
     marginRight: 10,
   },
   cardDescription: {
-    fontSize: 13,
     color: '#fff',
-    fontWeight: '400',
-    marginTop: 3,
+    fontWeight: '500',
+    marginTop: 6,
+    opacity: 0.9,
+    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
 });
 

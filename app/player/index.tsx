@@ -4,7 +4,6 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  TouchableWithoutFeedback,
   ActivityIndicator,
   Modal,
   StatusBar,
@@ -17,32 +16,36 @@ import {
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as ScreenOrientation from 'expo-screen-orientation';
-import Video, { 
-  VideoRef, 
-  OnLoadData, 
+import Video, {
+  VideoRef,
+  OnLoadData,
   OnProgressData,
   OnBufferData,
 } from 'react-native-video';
-
-type ResizeMode = 'contain' | 'cover' | 'stretch';
-
-interface OnErrorData {
-  error?: {
-    localizedDescription?: string;
-  };
-}
 import Slider from '@react-native-community/slider';
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
+import { runOnJS } from 'react-native-reanimated';
+import * as Brightness from 'expo-brightness';
+
 import { storageService, databaseService } from '@/services';
 import { fonts } from '@/theme/fonts';
 import { AudioBooster } from '@/utils/AudioBooster';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
+type ResizeMode = 'contain' | 'cover' | 'stretch';
+
 interface Track {
   index: number;
   title: string;
   language: string;
   selected: boolean;
+}
+
+interface OnErrorData {
+  error: {
+    localizedDescription?: string;
+  };
 }
 
 const PlayerScreen: React.FC = () => {
@@ -57,20 +60,8 @@ const PlayerScreen: React.FC = () => {
   const itemType = Array.isArray(params.type) ? params.type[0] : params.type || 'movie';
   const poster = Array.isArray(params.poster) ? params.poster[0] : params.poster || '';
 
-  // Debug logs
-  useEffect(() => {
-    console.log('🎬 Player Params:', { 
-      streamUrl, 
-      title, 
-      itemId, 
-      itemType,
-      hasUrl: !!streamUrl,
-      urlLength: streamUrl?.length 
-    });
-  }, [streamUrl, title, itemId, itemType]);
-
   // Player State
-  const [paused, setPaused] = useState(false); // Başlangıçta false, otomatik başlasın
+  const [paused, setPaused] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [duration, setDuration] = useState(0);
@@ -78,6 +69,12 @@ const PlayerScreen: React.FC = () => {
   const [seeking, setSeeking] = useState(false);
   const [buffering, setBuffering] = useState(false);
   const [resumeChecked, setResumeChecked] = useState(false);
+
+  // Gesture State
+  const [brightness, setBrightness] = useState(0.5);
+  const [gestureType, setGestureType] = useState<'volume' | 'brightness' | 'seek' | null>(null);
+  const [seekDirection, setSeekDirection] = useState<'forward' | 'backward' | null>(null);
+  const gestureTimeout = useRef<NodeJS.Timeout | null>(null);
 
   // Progress save timer
   const progressSaveInterval = useRef<NodeJS.Timeout | null>(null);
@@ -95,13 +92,6 @@ const PlayerScreen: React.FC = () => {
   const [volume, setVolume] = useState(1.0);
   const [audioSessionId, setAudioSessionId] = useState<number | null>(null);
 
-  // Audio Boost Effect
-  useEffect(() => {
-    if (audioSessionId !== null) {
-      AudioBooster.setBoost(audioSessionId, audioBoostLevel);
-    }
-  }, [audioSessionId, audioBoostLevel]);
-
   // Tracks
   const [audioTracks, setAudioTracks] = useState<Track[]>([]);
   const [textTracks, setTextTracks] = useState<Track[]>([]);
@@ -114,7 +104,6 @@ const PlayerScreen: React.FC = () => {
   useEffect(() => {
     initialize();
     return () => {
-      // Cleanup
       ScreenOrientation.unlockAsync();
       if (hideControlsTimer.current) {
         clearTimeout(hideControlsTimer.current);
@@ -122,21 +111,29 @@ const PlayerScreen: React.FC = () => {
       if (progressSaveInterval.current) {
         clearInterval(progressSaveInterval.current);
       }
-      // Save progress on exit
       saveProgress();
-      // Release Audio Booster
       AudioBooster.release();
     };
   }, []);
 
+  // Audio Boost Effect
+  useEffect(() => {
+    if (audioSessionId !== null) {
+      AudioBooster.setBoost(audioSessionId, audioBoostLevel);
+    }
+  }, [audioSessionId, audioBoostLevel]);
+
   const initialize = async () => {
     try {
-      // Lock to landscape
-      await ScreenOrientation.lockAsync(
-        ScreenOrientation.OrientationLock.LANDSCAPE
-      );
+      await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
 
-      // Load settings
+      // Brightness izni
+      const { status } = await Brightness.requestPermissionsAsync();
+      if (status === 'granted') {
+        const currentBrightness = await Brightness.getBrightnessAsync();
+        setBrightness(currentBrightness);
+      }
+
       const savedResizeMode = await storageService.getItem<string>('default_resize_mode');
       if (savedResizeMode) setResizeMode(savedResizeMode as ResizeMode);
 
@@ -144,10 +141,9 @@ const PlayerScreen: React.FC = () => {
       if (savedAudioBoost) {
         const boostLevel = parseFloat(savedAudioBoost);
         setAudioBoostLevel(boostLevel);
-        setVolume(Math.min(boostLevel, 1.0)); // Video component max volume is 1.0
+        setVolume(Math.min(boostLevel, 1.0));
       }
 
-      // Check for resume point
       await checkResumePoint();
     } catch (error) {
       console.error('Initialize error:', error);
@@ -157,21 +153,18 @@ const PlayerScreen: React.FC = () => {
   const checkResumePoint = async () => {
     try {
       const continueWatching = await databaseService.getContinueWatchingItem(itemId);
-      
+
       if (continueWatching && continueWatching.currentTime > 0 && continueWatching.progress < 95) {
         const minutes = Math.floor(continueWatching.currentTime / 60);
         const seconds = Math.floor(continueWatching.currentTime % 60);
-        
+
         Alert.alert(
           '⏯️ İzlemeye Devam Et',
-          `Bu videoyu daha önce izlemişsiniz. Kaldığınız yerden (${minutes}:${seconds.toString().padStart(2, '0')}) devam etmek ister misiniz?`,
+          `Kaldığınız yerden (${minutes}:${seconds.toString().padStart(2, '0')}) devam etmek ister misiniz?`,
           [
             {
               text: 'Baştan Başla',
-              onPress: () => {
-                setResumeChecked(true);
-                // Video zaten çalışıyor
-              },
+              onPress: () => setResumeChecked(true),
               style: 'cancel',
             },
             {
@@ -196,17 +189,14 @@ const PlayerScreen: React.FC = () => {
 
   const saveProgress = async () => {
     if (duration === 0 || currentTime === 0) return;
-    
+
     const progress = (currentTime / duration) * 100;
-    
-    // Eğer %95'ten fazla izlenmişse temizle
+
     if (progress >= 95) {
       await databaseService.removeContinueWatching(itemId);
-      console.log('✅ Video tamamlandı, continue watching temizlendi');
       return;
     }
 
-    // İlerlemeyi kaydet
     try {
       await databaseService.saveContinueWatching({
         id: itemId,
@@ -218,7 +208,6 @@ const PlayerScreen: React.FC = () => {
         currentTime: currentTime,
         duration: duration,
       });
-      
       lastSavedTime.current = currentTime;
     } catch (error) {
       console.error('Save progress error:', error);
@@ -249,10 +238,7 @@ const PlayerScreen: React.FC = () => {
   };
 
   const handlePlayPause = () => {
-    if (!paused) {
-      // Durdurulduğunda ilerlemeyi kaydet
-      saveProgress();
-    }
+    if (!paused) saveProgress();
     setPaused(!paused);
     showControlsTemporarily();
   };
@@ -262,9 +248,7 @@ const PlayerScreen: React.FC = () => {
     setCurrentTime(time);
   };
 
-  const handleSeekStart = () => {
-    setSeeking(true);
-  };
+  const handleSeekStart = () => setSeeking(true);
 
   const handleSeekEnd = (value: number) => {
     setSeeking(false);
@@ -277,48 +261,83 @@ const PlayerScreen: React.FC = () => {
     showControlsTemporarily();
   };
 
+  // Gesture Logic
+  const handleGestureEnd = () => {
+    if (gestureTimeout.current) clearTimeout(gestureTimeout.current);
+    gestureTimeout.current = setTimeout(() => {
+      setGestureType(null);
+      setSeekDirection(null);
+    }, 1000);
+  };
+
+  const doubleTap = Gesture.Tap()
+    .numberOfTaps(2)
+    .onStart((event) => {
+      const isRight = event.x > SCREEN_WIDTH / 2;
+      runOnJS(handleSkip)(isRight ? 10 : -10);
+      runOnJS(setGestureType)('seek');
+      runOnJS(setSeekDirection)(isRight ? 'forward' : 'backward');
+      runOnJS(handleGestureEnd)();
+    });
+
+  const singleTap = Gesture.Tap()
+    .onStart(() => {
+      runOnJS(handleScreenPress)();
+    });
+
+  const pan = Gesture.Pan()
+    .onUpdate((event) => {
+      const isRight = event.x > SCREEN_WIDTH / 2;
+      const delta = -event.velocityY / 10000;
+
+      if (isRight) {
+        runOnJS(setVolume)((prev) => Math.max(0, Math.min(1, prev + delta)));
+        runOnJS(setGestureType)('volume');
+      } else {
+        runOnJS(setBrightness)((prev) => {
+          const newVal = Math.max(0, Math.min(1, prev + delta));
+          Brightness.setSystemBrightnessAsync(newVal);
+          return newVal;
+        });
+        runOnJS(setGestureType)('brightness');
+      }
+      runOnJS(handleGestureEnd)();
+    });
+
+  const composedGestures = Gesture.Race(doubleTap, Gesture.Simultaneous(singleTap, pan));
+
   const handleLoad = (data: OnLoadData) => {
     setLoading(false);
     setDuration(data.duration);
     setError(null);
 
-    // Extract tracks if available
-    if (data.audioTracks && data.audioTracks.length > 0) {
-      const tracks = data.audioTracks.map((track: any, index: number) => ({
+    if (data.audioTracks?.length > 0) {
+      setAudioTracks(data.audioTracks.map((track: any, index: number) => ({
         index,
         title: track.title || `Audio ${index + 1}`,
         language: track.language || 'unknown',
         selected: index === 0,
-      }));
-      setAudioTracks(tracks);
+      })));
     }
 
-    if (data.textTracks && data.textTracks.length > 0) {
-      const tracks = data.textTracks.map((track: any, index: number) => ({
+    if (data.textTracks?.length > 0) {
+      setTextTracks(data.textTracks.map((track: any, index: number) => ({
         index,
         title: track.title || `Subtitle ${index + 1}`,
         language: track.language || 'unknown',
         selected: false,
-      }));
-      setTextTracks(tracks);
+      })));
     }
-
-    console.log('✅ Video loaded:', data.duration, 's');
   };
 
   const handleProgress = (data: OnProgressData) => {
-    if (!seeking) {
-      setCurrentTime(data.currentTime);
-    }
+    if (!seeking) setCurrentTime(data.currentTime);
   };
 
-  const handleBuffer = (data: OnBufferData) => {
-    setBuffering(data.isBuffering);
-  };
+  const handleBuffer = (data: OnBufferData) => setBuffering(data.isBuffering);
 
   const handleError = (error: OnErrorData) => {
     console.error('❌ Video error:', error);
-    console.error('Stream URL:', streamUrl);
     setLoading(false);
     const errorMsg = error.error?.localizedDescription || 'Video yüklenemedi';
     setError(`${errorMsg}\n\nURL: ${streamUrl.substring(0, 50)}...`);
@@ -327,7 +346,6 @@ const PlayerScreen: React.FC = () => {
   const handleRetry = () => {
     setError(null);
     setLoading(true);
-    // Force re-render by changing key (implemented in Video component)
   };
 
   const handleBack = async () => {
@@ -338,14 +356,12 @@ const PlayerScreen: React.FC = () => {
   const handleOpenInVLC = async () => {
     try {
       const vlcUrl = `vlc://${streamUrl}`;
-      const canOpen = await Linking.canOpenURL(vlcUrl);
-      if (canOpen) {
+      if (await Linking.canOpenURL(vlcUrl)) {
         await Linking.openURL(vlcUrl);
       } else {
         Alert.alert('Hata', 'VLC Player yüklü değil');
       }
     } catch (error) {
-      console.error('VLC open error:', error);
       Alert.alert('Hata', 'VLC açılamadı');
     }
   };
@@ -354,10 +370,7 @@ const PlayerScreen: React.FC = () => {
     const hrs = Math.floor(seconds / 3600);
     const mins = Math.floor((seconds % 3600) / 60);
     const secs = Math.floor(seconds % 60);
-    
-    if (hrs > 0) {
-      return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-    }
+    if (hrs > 0) return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
@@ -373,27 +386,15 @@ const PlayerScreen: React.FC = () => {
             <Ionicons name="refresh" size={20} color="#fff" />
             <Text style={styles.errorButtonText}>Yeniden Dene</Text>
           </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.errorButton, styles.errorButtonSecondary]}
-            onPress={handleBack}
-          >
+          <TouchableOpacity style={[styles.errorButton, styles.errorButtonSecondary]} onPress={handleBack}>
             <Ionicons name="arrow-back" size={20} color="#fff" />
-            <Text style={styles.errorButtonText}>Geri Dön                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.modalItem}
-                onPress={() => {
-                  setSettingsVisible(false);
-                  handleOpenInVLC();
-                }}
-              >
-                <Ionicons name="open-outline" size={24} color="#3b82f6" />
-                <Text style={[styles.modalItemLabel, { color: '#3b82f6', marginLeft: 12 }]}>
-                  VLC'de Aç
-                </Text>
-              </TouchableOpacity>
-            </View>
+            <Text style={styles.errorButtonText}>Geri Dön</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.modalItem} onPress={handleOpenInVLC}>
+            <Ionicons name="open-outline" size={24} color="#3b82f6" />
+            <Text style={[styles.modalItemLabel, { color: '#3b82f6', marginLeft: 12 }]}>VLC'de Aç</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     );
   }
@@ -401,44 +402,69 @@ const PlayerScreen: React.FC = () => {
   return (
     <View style={styles.container}>
       <StatusBar hidden />
-      
-      {/* Video Player */}
-      <Video
-        ref={videoRef}
-        source={{ uri: streamUrl }}
-        style={styles.video}
-        paused={paused}
-        resizeMode={resizeMode}
-        volume={volume}
-        rate={playbackRate}
-        playInBackground={true}
-        playWhenInactive={false}
-        bufferConfig={{
-          minBufferMs: 15000,
-          maxBufferMs: 50000,
-          bufferForPlaybackMs: 2500,
-          bufferForPlaybackAfterRebufferMs: 5000,
-        }}
-        onLoad={handleLoad}
-        onProgress={handleProgress}
-        onBuffer={handleBuffer}
-        onError={handleError}
-        // @ts-ignore - onAudioSessionId types are missing in current version
-        onAudioSessionId={(data: any) => {
-          setAudioSessionId((prevId) => {
-            if (prevId !== data.audioSessionId) {
-              return data.audioSessionId;
-            }
-            return prevId;
-          });
-        }}
-        audioOutput="speaker"
-      />
 
-      {/* Tap Area */}
-      <TouchableWithoutFeedback onPress={handleScreenPress}>
-        <View style={styles.tapArea} />
-      </TouchableWithoutFeedback>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <GestureDetector gesture={composedGestures}>
+          <View style={styles.videoContainer}>
+            <Video
+              ref={videoRef}
+              source={{ uri: streamUrl }}
+              style={styles.video}
+              paused={paused}
+              resizeMode={resizeMode}
+              volume={volume}
+              rate={playbackRate}
+              playInBackground={true}
+              playWhenInactive={false}
+              bufferConfig={{
+                minBufferMs: 15000,
+                maxBufferMs: 50000,
+                bufferForPlaybackMs: 2500,
+                bufferForPlaybackAfterRebufferMs: 5000,
+              }}
+              onLoad={handleLoad}
+              onProgress={handleProgress}
+              onBuffer={handleBuffer}
+              onError={handleError}
+              // @ts-ignore
+              onAudioSessionId={(data: any) => {
+                setAudioSessionId((prevId) => prevId !== data.audioSessionId ? data.audioSessionId : prevId);
+              }}
+              audioOutput="speaker"
+            />
+
+            {/* Gesture Feedback */}
+            {gestureType === 'volume' && (
+              <View style={styles.gestureFeedback}>
+                <Ionicons
+                  name={volume === 0 ? "volume-mute" : volume < 0.5 ? "volume-low" : "volume-high"}
+                  size={40} color="#fff"
+                />
+                <Text style={styles.gestureText}>{Math.round(volume * 100)}%</Text>
+              </View>
+            )}
+
+            {gestureType === 'brightness' && (
+              <View style={styles.gestureFeedback}>
+                <Ionicons name="sunny" size={40} color="#fff" />
+                <Text style={styles.gestureText}>{Math.round(brightness * 100)}%</Text>
+              </View>
+            )}
+
+            {gestureType === 'seek' && (
+              <View style={styles.gestureFeedback}>
+                <Ionicons
+                  name={seekDirection === 'forward' ? "play-forward" : "play-back"}
+                  size={40} color="#fff"
+                />
+                <Text style={styles.gestureText}>
+                  {seekDirection === 'forward' ? '+10s' : '-10s'}
+                </Text>
+              </View>
+            )}
+          </View>
+        </GestureDetector>
+      </GestureHandlerRootView>
 
       {/* Loading Indicator */}
       {(loading || buffering) && (
@@ -453,59 +479,33 @@ const PlayerScreen: React.FC = () => {
       {/* Controls Overlay */}
       {controlsVisible && (
         <View style={styles.controlsOverlay}>
-          {/* Top Bar */}
           <View style={styles.topBar}>
             <TouchableOpacity style={styles.topButton} onPress={handleBack}>
               <Ionicons name="arrow-back" size={28} color="#fff" />
             </TouchableOpacity>
-            <Text style={styles.videoTitle} numberOfLines={1}>
-              {title}
-            </Text>
+            <Text style={styles.videoTitle} numberOfLines={1}>{title}</Text>
             <View style={styles.topRight}>
-              <TouchableOpacity
-                style={styles.topButton}
-                onPress={() => setTracksVisible(true)}
-              >
+              <TouchableOpacity style={styles.topButton} onPress={() => setTracksVisible(true)}>
                 <Ionicons name="chatbubbles-outline" size={24} color="#fff" />
               </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.topButton}
-                onPress={() => setSettingsVisible(true)}
-              >
+              <TouchableOpacity style={styles.topButton} onPress={() => setSettingsVisible(true)}>
                 <Ionicons name="settings-outline" size={24} color="#fff" />
               </TouchableOpacity>
             </View>
           </View>
 
-          {/* Center Controls */}
           <View style={styles.centerControls}>
-            <TouchableOpacity
-              style={styles.controlButton}
-              onPress={() => handleSkip(-10)}
-            >
+            <TouchableOpacity style={styles.controlButton} onPress={() => handleSkip(-10)}>
               <Ionicons name="play-back" size={40} color="#fff" />
             </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.playButton}
-              onPress={handlePlayPause}
-            >
-              <Ionicons
-                name={paused ? 'play' : 'pause'}
-                size={60}
-                color="#fff"
-              />
+            <TouchableOpacity style={styles.playButton} onPress={handlePlayPause}>
+              <Ionicons name={paused ? 'play' : 'pause'} size={60} color="#fff" />
             </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.controlButton}
-              onPress={() => handleSkip(10)}
-            >
+            <TouchableOpacity style={styles.controlButton} onPress={() => handleSkip(10)}>
               <Ionicons name="play-forward" size={40} color="#fff" />
             </TouchableOpacity>
           </View>
 
-          {/* Bottom Bar */}
           <View style={styles.bottomBar}>
             <View style={styles.timeContainer}>
               <Text style={styles.timeText}>{formatTime(currentTime)}</Text>
@@ -529,168 +529,93 @@ const PlayerScreen: React.FC = () => {
       )}
 
       {/* Settings Modal */}
-      <Modal
-        visible={settingsVisible}
-        animationType="fade"
-        transparent={true}
-        onRequestClose={() => setSettingsVisible(false)}
-      >
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setSettingsVisible(false)}
-        >
-          <TouchableOpacity
-            activeOpacity={1}
-            onPress={(e) => e.stopPropagation()}
-            style={{ width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' }}
-          >
+      <Modal visible={settingsVisible} animationType="fade" transparent={true} onRequestClose={() => setSettingsVisible(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setSettingsVisible(false)}>
+          <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()} style={styles.modalCenter}>
             <View style={styles.modalContent}>
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>Oynatıcı Ayarları</Text>
-                <TouchableOpacity 
-                  style={styles.closeButton} 
-                  onPress={() => setSettingsVisible(false)}
-                >
+                <TouchableOpacity style={styles.closeButton} onPress={() => setSettingsVisible(false)}>
                   <Ionicons name="close" size={24} color="#fff" />
                 </TouchableOpacity>
               </View>
 
-              <TouchableOpacity
-                style={styles.modalItem}
-                onPress={() => {
-                  const modes: ResizeMode[] = ['contain', 'cover', 'stretch'];
-                  const currentIndex = modes.indexOf(resizeMode);
-                  const nextMode = modes[(currentIndex + 1) % modes.length];
-                  setResizeMode(nextMode);
-                  storageService.setItem('default_resize_mode', nextMode);
-                }}
-              >
+              <TouchableOpacity style={styles.modalItem} onPress={() => {
+                const modes: ResizeMode[] = ['contain', 'cover', 'stretch'];
+                const nextMode = modes[(modes.indexOf(resizeMode) + 1) % modes.length];
+                setResizeMode(nextMode);
+                storageService.setItem('default_resize_mode', nextMode);
+              }}>
                 <Text style={styles.modalItemLabel}>Görüntü Oranı</Text>
                 <Text style={styles.modalItemValue}>
                   {resizeMode === 'contain' ? 'Sığdır' : resizeMode === 'cover' ? 'Kapla' : 'Uzat'}
                 </Text>
               </TouchableOpacity>
 
-              <TouchableOpacity
-                style={styles.modalItem}
-                onPress={() => {
-                  const rates = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
-                  const currentIndex = rates.indexOf(playbackRate);
-                  const nextRate = rates[(currentIndex + 1) % rates.length];
-                  setPlaybackRate(nextRate);
-                }}
-              >
+              <TouchableOpacity style={styles.modalItem} onPress={() => {
+                const rates = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
+                const nextRate = rates[(rates.indexOf(playbackRate) + 1) % rates.length];
+                setPlaybackRate(nextRate);
+              }}>
                 <Text style={styles.modalItemLabel}>Oynatma Hızı</Text>
                 <Text style={styles.modalItemValue}>{playbackRate}x</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity
-                style={styles.modalItem}
-                onPress={() => {
-                  const levels = [1.0, 1.5, 2.0, 3.0];
-                  // En yakın mevcut seviyeyi bul (kayan noktalı sayılar için)
-                  const currentIndex = levels.findIndex(l => Math.abs(l - audioBoostLevel) < 0.1);
-                  const nextLevel = levels[(currentIndex + 1) % levels.length];
-                  setAudioBoostLevel(nextLevel);
-                  // Anlık olarak kaydetmesek de olur, veya kaydedebiliriz.
-                  // Kullanıcı kalıcı olmasını isterse Settings'den yapar.
-                }}
-              >
+              <TouchableOpacity style={styles.modalItem} onPress={() => {
+                const levels = [1.0, 1.5, 2.0, 3.0];
+                const currentIndex = levels.findIndex(l => Math.abs(l - audioBoostLevel) < 0.1);
+                const nextLevel = levels[(currentIndex + 1) % levels.length];
+                setAudioBoostLevel(nextLevel);
+              }}>
                 <Text style={styles.modalItemLabel}>Ses Güçlendirme 🔊</Text>
                 <Text style={styles.modalItemValue}>
-                  {audioBoostLevel <= 1.0 ? 'Kapalı' : 
-                   audioBoostLevel <= 1.5 ? 'Hafif' : 
-                   audioBoostLevel <= 2.0 ? 'Güçlü' : 'Maksimum'}
+                  {audioBoostLevel <= 1.0 ? 'Kapalı' : audioBoostLevel <= 1.5 ? 'Hafif' : audioBoostLevel <= 2.0 ? 'Güçlü' : 'Maksimum'}
                 </Text>
               </TouchableOpacity>
-
-             
             </View>
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
 
       {/* Tracks Modal */}
-      <Modal
-        visible={tracksVisible}
-        animationType="fade"
-        transparent={true}
-        onRequestClose={() => setTracksVisible(false)}
-      >
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setTracksVisible(false)}
-        >
-          <TouchableOpacity
-            activeOpacity={1}
-            onPress={(e) => e.stopPropagation()}
-            style={{ width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' }}
-          >
+      <Modal visible={tracksVisible} animationType="fade" transparent={true} onRequestClose={() => setTracksVisible(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setTracksVisible(false)}>
+          <TouchableOpacity activeOpacity={1} onPress={(e) => e.stopPropagation()} style={styles.modalCenter}>
             <View style={styles.modalContent}>
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>Ses & Altyazı</Text>
-                <TouchableOpacity 
-                  style={styles.closeButton} 
-                  onPress={() => setTracksVisible(false)}
-                >
+                <TouchableOpacity style={styles.closeButton} onPress={() => setTracksVisible(false)}>
                   <Ionicons name="close" size={24} color="#fff" />
                 </TouchableOpacity>
               </View>
 
               <ScrollView style={styles.modalScrollView} showsVerticalScrollIndicator={false}>
                 <Text style={styles.modalSectionTitle}>Ses Dili</Text>
-                {audioTracks.length > 0 ? (
-                  audioTracks.map((track) => (
-                    <TouchableOpacity
-                      key={track.index}
-                      style={styles.modalItem}
-                      onPress={() => {
-                        setSelectedAudioTrack(track.index);
-                        setTracksVisible(false);
-                      }}
-                    >
-                      <Text style={styles.modalItemLabel}>
-                        {track.title} ({track.language})
-                      </Text>
-                      {selectedAudioTrack === track.index && (
-                        <Ionicons name="checkmark" size={20} color="#3b82f6" />
-                      )}
-                    </TouchableOpacity>
-                  ))
-                ) : (
-                  <Text style={styles.modalEmptyText}>Ses dili seçeneği yok</Text>
-                )}
+                {audioTracks.length > 0 ? audioTracks.map((track) => (
+                  <TouchableOpacity key={track.index} style={styles.modalItem} onPress={() => {
+                    setSelectedAudioTrack(track.index);
+                    setTracksVisible(false);
+                  }}>
+                    <Text style={styles.modalItemLabel}>{track.title} ({track.language})</Text>
+                    {selectedAudioTrack === track.index && <Ionicons name="checkmark" size={20} color="#3b82f6" />}
+                  </TouchableOpacity>
+                )) : <Text style={styles.modalEmptyText}>Ses dili seçeneği yok</Text>}
 
                 <Text style={styles.modalSectionTitle}>Altyazı</Text>
-                <TouchableOpacity
-                  style={styles.modalItem}
-                  onPress={() => {
-                    setSelectedTextTrack(-1);
-                    setTracksVisible(false);
-                  }}
-                >
+                <TouchableOpacity style={styles.modalItem} onPress={() => {
+                  setSelectedTextTrack(-1);
+                  setTracksVisible(false);
+                }}>
                   <Text style={styles.modalItemLabel}>Kapalı</Text>
-                  {selectedTextTrack === -1 && (
-                    <Ionicons name="checkmark" size={20} color="#3b82f6" />
-                  )}
+                  {selectedTextTrack === -1 && <Ionicons name="checkmark" size={20} color="#3b82f6" />}
                 </TouchableOpacity>
                 {textTracks.map((track) => (
-                  <TouchableOpacity
-                    key={track.index}
-                    style={styles.modalItem}
-                    onPress={() => {
-                      setSelectedTextTrack(track.index);
-                      setTracksVisible(false);
-                    }}
-                  >
-                    <Text style={styles.modalItemLabel}>
-                      {track.title} ({track.language})
-                    </Text>
-                    {selectedTextTrack === track.index && (
-                      <Ionicons name="checkmark" size={20} color="#3b82f6" />
-                    )}
+                  <TouchableOpacity key={track.index} style={styles.modalItem} onPress={() => {
+                    setSelectedTextTrack(track.index);
+                    setTracksVisible(false);
+                  }}>
+                    <Text style={styles.modalItemLabel}>{track.title} ({track.language})</Text>
+                    {selectedTextTrack === track.index && <Ionicons name="checkmark" size={20} color="#3b82f6" />}
                   </TouchableOpacity>
                 ))}
               </ScrollView>
@@ -703,229 +628,45 @@ const PlayerScreen: React.FC = () => {
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#000',
-  },
-  video: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
-  tapArea: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  loadingOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-  },
-  loadingText: {
-    color: '#fff',
-    fontSize: 16,
-    fontFamily: fonts.medium,
-    marginTop: 16,
-  },
-  controlsOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
-    justifyContent: 'space-between',
-  },
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 10,
-    backgroundColor: 'linear-gradient(to bottom, rgba(0,0,0,0.8), transparent)',
-  },
-  topButton: {
-    padding: 8,
-  },
-  videoTitle: {
-    flex: 1,
-    color: '#fff',
-    fontSize: 18,
-    fontFamily: fonts.semibold,
-    marginHorizontal: 12,
-  },
-  topRight: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  centerControls: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 40,
-  },
-  controlButton: {
-    padding: 12,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    borderRadius: 50,
-  },
-  playButton: {
-    padding: 20,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-    borderRadius: 60,
-  },
-  bottomBar: {
-    paddingHorizontal: 20,
-    paddingBottom: 20,
-    backgroundColor: 'linear-gradient(to top, rgba(0,0,0,0.8), transparent)',
-  },
-  timeContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  timeText: {
-    color: '#fff',
-    fontSize: 14,
-    fontFamily: fonts.medium,
-  },
-  timeSeparator: {
-    color: 'rgba(255, 255, 255, 0.6)',
-    fontSize: 14,
-    marginHorizontal: 4,
-  },
-  slider: {
-    width: '100%',
-    height: 40,
-  },
-  errorContainer: {
-    flex: 1,
-    backgroundColor: '#000',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 40,
-  },
-  errorTitle: {
-    color: '#fff',
-    fontSize: 24,
-    fontFamily: fonts.bold,
-    marginTop: 20,
-    marginBottom: 12,
-  },
-  errorMessage: {
-    color: 'rgba(255, 255, 255, 0.7)',
-    fontSize: 16,
-    fontFamily: fonts.regular,
-    textAlign: 'center',
-    marginBottom: 32,
-  },
-  errorButtons: {
-    flexDirection: 'row',
-    gap: 16,
-  },
-  errorButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#3b82f6',
-    paddingHorizontal: 24,
-    paddingVertical: 14,
-    borderRadius: 12,
-    gap: 8,
-  },
-  errorButtonSecondary: {
-    backgroundColor: '#374151',
-  },
-  errorButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontFamily: fonts.semibold,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.85)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 8,
-  },
-  modalContent: {
-    backgroundColor: '#1e293b',
-    borderRadius: 24,
-    width: '80%',
-    height: '90%',
-    maxWidth: 800, // Çok geniş tabletlerde aşırı yayılmayı önler ama telefonda tam genişlik sağlar
-    padding: 24,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 10,
-    },
-    shadowOpacity: 0.5,
-    shadowRadius: 20,
-    elevation: 24,
-  },
-  modalScrollView: {
-    flex: 1,
-  },
-  modalTitle: {
-    color: '#fff',
-    fontSize: 28,
-    fontFamily: fonts.bold,
-    textAlign: 'center',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 24,
-    position: 'relative',
-    width: '100%',
-  },
-  closeButton: {
-    position: 'absolute',
-    right: 0,
-    padding: 8,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 20,
-  },
-  modalSectionTitle: {
-    color: '#94a3b8',
-    fontSize: 16,
-    fontFamily: fonts.semibold,
-    marginTop: 20,
-    marginBottom: 12,
-    textTransform: 'uppercase',
-    letterSpacing: 1.2,
-  },
-  modalItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 20,
-    paddingHorizontal: 20,
-    backgroundColor: '#0f172a',
-    borderRadius: 14,
-    marginBottom: 12,
-    minHeight: 64,
-  },
-  modalItemLabel: {
-    color: '#fff',
-    fontSize: 19,
-    fontFamily: fonts.medium,
-    flex: 1,
-  },
-  modalItemValue: {
-    color: '#3b82f6',
-    fontSize: 19,
-    fontFamily: fonts.semibold,
-  },
-  modalEmptyText: {
-    color: '#64748b',
-    fontSize: 17,
-    fontFamily: fonts.regular,
-    fontStyle: 'italic',
-    paddingVertical: 16,
-  },
+  container: { flex: 1, backgroundColor: '#000' },
+  videoContainer: { flex: 1, backgroundColor: '#000' },
+  video: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
+  loadingOverlay: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0, 0, 0, 0.7)' },
+  loadingText: { color: '#fff', fontSize: 16, fontFamily: fonts.medium, marginTop: 16 },
+  controlsOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0, 0, 0, 0.4)', justifyContent: 'space-between' },
+  topBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingTop: 20, paddingBottom: 10 },
+  topButton: { padding: 8 },
+  videoTitle: { flex: 1, color: '#fff', fontSize: 18, fontFamily: fonts.semibold, marginHorizontal: 12 },
+  topRight: { flexDirection: 'row', gap: 8 },
+  centerControls: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 40 },
+  controlButton: { padding: 12, backgroundColor: 'rgba(0, 0, 0, 0.5)', borderRadius: 50 },
+  playButton: { padding: 20, backgroundColor: 'rgba(0, 0, 0, 0.6)', borderRadius: 60 },
+  bottomBar: { paddingHorizontal: 20, paddingBottom: 20 },
+  timeContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+  timeText: { color: '#fff', fontSize: 14, fontFamily: fonts.medium },
+  timeSeparator: { color: 'rgba(255, 255, 255, 0.6)', fontSize: 14, marginHorizontal: 4 },
+  slider: { width: '100%', height: 40 },
+  errorContainer: { flex: 1, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center', padding: 40 },
+  errorTitle: { color: '#fff', fontSize: 24, fontFamily: fonts.bold, marginTop: 20, marginBottom: 12 },
+  errorMessage: { color: 'rgba(255, 255, 255, 0.7)', fontSize: 16, fontFamily: fonts.regular, textAlign: 'center', marginBottom: 32 },
+  errorButtons: { flexDirection: 'row', gap: 16 },
+  errorButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#3b82f6', paddingVertical: 12, paddingHorizontal: 24, borderRadius: 12, gap: 8 },
+  errorButtonSecondary: { backgroundColor: 'rgba(255, 255, 255, 0.1)' },
+  errorButtonText: { color: '#fff', fontSize: 16, fontFamily: fonts.medium },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.8)', justifyContent: 'center', alignItems: 'center' },
+  modalCenter: { width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' },
+  modalContent: { width: '80%', maxHeight: '80%', backgroundColor: '#1e293b', borderRadius: 24, padding: 24 },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  modalTitle: { color: '#fff', fontSize: 20, fontFamily: fonts.bold },
+  closeButton: { padding: 4 },
+  modalScrollView: { maxHeight: 400 },
+  modalItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: 'rgba(255, 255, 255, 0.1)' },
+  modalItemLabel: { color: '#e2e8f0', fontSize: 16, fontFamily: fonts.medium },
+  modalItemValue: { color: '#3b82f6', fontSize: 16, fontFamily: fonts.bold },
+  modalSectionTitle: { color: '#94a3b8', fontSize: 14, fontFamily: fonts.bold, marginTop: 20, marginBottom: 8, textTransform: 'uppercase' },
+  modalEmptyText: { color: 'rgba(255, 255, 255, 0.5)', fontSize: 14, fontStyle: 'italic', paddingVertical: 8 },
+  gestureFeedback: { position: 'absolute', top: '50%', left: '50%', transform: [{ translateX: -50 }, { translateY: -50 }], backgroundColor: 'rgba(0,0,0,0.7)', padding: 20, borderRadius: 16, alignItems: 'center', justifyContent: 'center', zIndex: 10 },
+  gestureText: { color: '#fff', fontSize: 18, fontFamily: fonts.bold, marginTop: 8 },
 });
 
 export default PlayerScreen;
-

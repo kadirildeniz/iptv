@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { View, StyleSheet, SafeAreaView, Platform, Text, ActivityIndicator, TouchableOpacity, useWindowDimensions, TextInput, FlatList } from 'react-native';
+import { View, StyleSheet, SafeAreaView, Platform, Text, ActivityIndicator, TouchableOpacity, useWindowDimensions, TextInput } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useRouter, Redirect, useFocusEffect } from 'expo-router';
 import { fonts } from '@/theme/fonts';
@@ -458,21 +459,18 @@ const LiveTv: React.FC = () => {
                 {searchQuery
                   ? `"${searchQuery}" için sonuç bulunamadı`
                   : selectedCategory === 'favorites'
-                  ? '⭐ Henüz favori kanal eklemediniz'
-                  : '📺 Bu kategoride kanal bulunamadı. Lütfen ana sayfadan güncelleme yapın.'}
+                    ? '⭐ Henüz favori kanal eklemediniz'
+                    : '📺 Bu kategoride kanal bulunamadı. Lütfen ana sayfadan güncelleme yapın.'}
               </Text>
             </View>
           ) : (
-            <FlatList
+            <FlashList<Channel>
               data={filteredChannels}
               renderItem={renderChannelItem}
               keyExtractor={channelKeyExtractor}
+              // @ts-ignore
+              estimatedItemSize={200}
               numColumns={numColumns}
-              columnWrapperStyle={
-                numColumns > 1
-                  ? [styles.channelRow, isWideLayout ? styles.channelRowWide : styles.channelRowCompact]
-                  : undefined
-              }
               contentContainerStyle={[
                 styles.channelsGrid,
                 isWideLayout ? styles.channelsGridWide : styles.channelsGridCompact,

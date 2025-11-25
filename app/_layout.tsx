@@ -1,7 +1,7 @@
 import { Stack } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
+import { StatusBar as ExpoStatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
-import { Platform } from 'react-native';
+import { Platform, StatusBar } from 'react-native';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import * as SplashScreen from 'expo-splash-screen';
 import { useFonts } from 'expo-font';
@@ -12,7 +12,7 @@ import {
   Outfit_700Bold,
 } from '@expo-google-fonts/outfit';
 
-SplashScreen.preventAutoHideAsync().catch(() => {});
+SplashScreen.preventAutoHideAsync().catch(() => { });
 
 export default function RootLayout() {
   console.log('🔍 RootLayout render ediliyor');
@@ -26,8 +26,8 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (fontsLoaded || fontError) {
-      SplashScreen.hideAsync().catch(() => {});
-      
+      SplashScreen.hideAsync().catch(() => { });
+
       // Fonts yüklendikten sonra orientation lock yap
       if (Platform.OS !== 'web') {
         const lockOrientation = async () => {
@@ -36,6 +36,12 @@ export default function RootLayout() {
             await new Promise(resolve => setTimeout(resolve, 1000));
             await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
             console.log('✅ Orientation locked to landscape');
+
+            // Android'de navigation bar'ı gizle (immersive mode)
+            if (Platform.OS === 'android') {
+              StatusBar.setHidden(true);
+              console.log('✅ Navigation bar hidden');
+            }
           } catch (err: any) {
             // Activity hatası varsa sessizce geç
             if (!err?.message?.includes('activity') && !err?.message?.includes('Activity')) {
@@ -59,7 +65,7 @@ export default function RootLayout() {
           headerShown: false,
         }}
       />
-      <StatusBar style="dark" />
+      <ExpoStatusBar style="dark" />
     </>
   );
 }

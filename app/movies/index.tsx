@@ -3,15 +3,17 @@ import {
   View,
   Text,
   StyleSheet,
-  FlatList,
   Platform,
   ActivityIndicator,
   useWindowDimensions,
   TouchableOpacity,
   TextInput,
+  Modal,
 } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useRouter, Redirect, useFocusEffect } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import CategoryList from '@/app/components/CategoryList';
 import MovieCard from '@/app/components/MovieCard';
 import SearchHeader from '@/app/components/SearchHeader';
@@ -21,6 +23,7 @@ import MovieModel from '@/services/database/models/Movie';
 import MovieCategoryModel from '@/services/database/models/MovieCategory';
 import { fonts } from '@/theme/fonts';
 import { turkishIncludes } from '@/utils/textUtils';
+import { getDeviceType } from '@/utils/responsive';
 
 interface UICategory {
   id: string;
@@ -39,6 +42,9 @@ const Movies: React.FC = () => {
   const [loadingMovies, setLoadingMovies] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [shouldRedirect, setShouldRedirect] = useState(false);
+  const [isCategoryModalVisible, setIsCategoryModalVisible] = useState(false);
+  const insets = useSafeAreaInsets();
+  const deviceType = getDeviceType(width);
 
   useEffect(() => {
     initialize();
@@ -170,7 +176,7 @@ const Movies: React.FC = () => {
         if (index < 3) {
           console.log(`Film: ${m.name}, added: "${m.added}", release_date: "${m.releaseDate}"`);
         }
-        
+
         return {
           num: index + 1,
           stream_id: m.streamId,
@@ -260,6 +266,9 @@ const Movies: React.FC = () => {
 
   const handleCategorySelect = (categoryId: string) => {
     setSelectedCategory(categoryId);
+    if (deviceType === 'mobile') {
+      setIsCategoryModalVisible(false);
+    }
   };
 
   const handleSearch = (query: string) => {
@@ -268,9 +277,14 @@ const Movies: React.FC = () => {
 
   const numColumns = useMemo(() => {
     if (Platform.OS === 'web') {
-      return width > 1200 ? 5 : width > 768 ? 4 : 3;
+      return width > 1200 ? 6 : width > 768 ? 5 : 4;
     }
-    return width > 768 ? 3 : 2;
+    // Mobil landscape: 4 sütun (kare kartlar)
+    // Tablet: 5 sütun
+    // TV: 6 sütun
+    if (width > 1200) return 6;
+    if (width > 900) return 5;
+    return 4;
   }, [width]);
 
   const handleMoviePress = useCallback(
@@ -302,12 +316,12 @@ const Movies: React.FC = () => {
           }
           return newSet;
         });
-        
+
         // Sadece favorilerim sayfasındaysak listeyi yenile
         if (selectedCategory === 'favorites') {
-            loadMovies('favorites');
+          loadMovies('favorites');
         }
-        
+
         console.log(`✅ Favori ${next ? 'eklendi' : 'çıkarıldı'}: ${movieItem.name}`);
       } catch (err) {
         console.error('Favori güncelleme hatası:', err);
@@ -378,32 +392,56 @@ const Movies: React.FC = () => {
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingTop: insets.top }]}>
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.content}>
-        <View style={[styles.sidebar, { width: Math.min(Math.max(width * 0.26, 180), 320) }]}>
-          <View style={styles.backRow}>
-            <TouchableOpacity
-              style={styles.backButton}
-              onPress={() => router.back()}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="chevron-back" size={20} color="#94a3b8" />
-            </TouchableOpacity>
-            <Text style={styles.backLabel}>Filmler</Text>
+        {/* Sidebar - sadece tablet ve desktop'ta göster */}
+        {deviceType !== 'mobile' && (
+          <View style={[styles.sidebar, { width: Math.min(Math.max(width * 0.26, 180), 320) }]}>
+            <View style={styles.backRow}>
+              <TouchableOpacity
+                style={styles.backButton}
+                onPress={() => router.back()}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="chevron-back" size={20} color="#94a3b8" />
+              </TouchableOpacity>
+              <Text style={styles.backLabel}>Filmler</Text>
+            </View>
+            <Text style={styles.sidebarSubtitle}>KATEGORİLER</Text>
+            <CategoryList
+              categories={categories}
+              selectedCategory={selectedCategory}
+              onCategorySelect={handleCategorySelect}
+              layoutMode="sidebar"
+              title=""
+              subtitle=""
+            />
           </View>
-          <Text style={styles.sidebarSubtitle}>KATEGORİLER</Text>
-          <CategoryList
-            categories={categories}
-            selectedCategory={selectedCategory}
-            onCategorySelect={handleCategorySelect}
-            layoutMode="sidebar"
-            title=""
-            subtitle=""
-          />
-        </View>
+        )}
 
         <View style={styles.catalogWrapper}>
+          {/* Mobile hamburger menu */}
+          {deviceType === 'mobile' && (
+            <View style={styles.mobileHeader}>
+              <TouchableOpacity
+                style={styles.hamburgerButton}
+                onPress={() => setIsCategoryModalVisible(true)}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="menu" size={28} color="#e2e8f0" />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.backButtonMobile}
+                onPress={() => router.back()}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="chevron-back" size={24} color="#94a3b8" />
+                <Text style={styles.backLabelMobile}>Geri</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
           <SearchHeader
             title="Filmler"
             onSearch={handleSearch}
@@ -423,35 +461,55 @@ const Movies: React.FC = () => {
                 {selectedCategory === 'favorites'
                   ? '⭐ Henüz favori film eklemediniz'
                   : searchQuery
-                  ? `"${searchQuery}" için sonuç bulunamadı`
-                  : '🎬 Bu kategoride film bulunamadı. Lütfen ana sayfadan güncelleme yapın.'}
+                    ? `"${searchQuery}" için sonuç bulunamadı`
+                    : '🎬 Bu kategoride film bulunamadı. Lütfen ana sayfadan güncelleme yapın.'}
               </Text>
             </View>
           ) : (
-            <FlatList
+            <FlashList
               data={filteredMovies}
               renderItem={renderMovie}
               keyExtractor={keyExtractor}
               numColumns={numColumns}
-              columnWrapperStyle={
-                numColumns > 1
-                  ? [
-                      styles.movieRow,
-                      Platform.OS === 'web' ? styles.movieRowWide : styles.movieRowCompact,
-                    ]
-                  : undefined
-              }
+              // @ts-ignore
+              estimatedItemSize={350}
               contentContainerStyle={styles.moviesGrid}
               showsVerticalScrollIndicator={false}
-              removeClippedSubviews
-              maxToRenderPerBatch={10}
-              updateCellsBatchingPeriod={50}
-              initialNumToRender={12}
-              windowSize={10}
+              keyboardShouldPersistTaps="handled"
             />
           )}
         </View>
       </View>
+
+      {/* Mobile Category Modal */}
+      <Modal
+        visible={isCategoryModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setIsCategoryModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { paddingTop: insets.top + 20 }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Kategoriler</Text>
+              <TouchableOpacity
+                onPress={() => setIsCategoryModalVisible(false)}
+                style={styles.modalCloseButton}
+              >
+                <Ionicons name="close" size={28} color="#e2e8f0" />
+              </TouchableOpacity>
+            </View>
+            <CategoryList
+              categories={categories}
+              selectedCategory={selectedCategory}
+              onCategorySelect={handleCategorySelect}
+              layoutMode="sidebar"
+              title=""
+              subtitle=""
+            />
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -569,6 +627,70 @@ const styles = StyleSheet.create({
     color: '#94a3b8',
     fontSize: 16,
     fontFamily: fonts.regular,
+  },
+  mobileHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#0b1120',
+    borderRadius: 12,
+    marginBottom: 12,
+  },
+  hamburgerButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: 'rgba(30, 41, 59, 0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  backButtonMobile: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    backgroundColor: 'rgba(30, 41, 59, 0.6)',
+  },
+  backLabelMobile: {
+    color: '#e2e8f0',
+    fontSize: 16,
+    fontFamily: fonts.semibold,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#0b1120',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingBottom: 40,
+    maxHeight: '80%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  modalTitle: {
+    color: '#e2e8f0',
+    fontSize: 24,
+    fontFamily: fonts.bold,
+  },
+  modalCloseButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(30, 41, 59, 0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
 

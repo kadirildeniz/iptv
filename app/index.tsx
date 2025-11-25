@@ -6,25 +6,27 @@ import { useState, useEffect } from 'react';
 import storageService from '@/services/storage.service';
 import { syncService } from '@/services';
 import apiClient from '@/services/api/client';
+import { getDeviceType, getResponsiveFontSize } from '@/utils/responsive';
 
 export default function HomeScreen() {
   const router = useRouter();
   const { width, height } = useWindowDimensions();
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [shouldRedirect, setShouldRedirect] = useState(false);
-  
+
   // Cihaz tipi belirleme
-  const isTablet = width >= 768 && width < 1024;
-  const isTV = width >= 1024;
-  const isPhone = width < 768;
-  
+  const deviceType = getDeviceType(width);
+  const isTablet = deviceType === 'tablet';
+  const isTV = deviceType === 'desktop';
+  const isPhone = deviceType === 'mobile';
+
   // Ayrı ayrı sync durumları
   const [syncing, setSyncing] = useState({
     channels: false,
     movies: false,
     series: false,
   });
-  
+
   const [syncProgress, setSyncProgress] = useState('');
 
   useEffect(() => {
@@ -58,7 +60,7 @@ export default function HomeScreen() {
     try {
       setSyncing(prev => ({ ...prev, [type]: true }));
       setSyncProgress('Başlatılıyor...');
-      
+
       await apiClient.loadCredentials();
 
       // Progress takibi
@@ -87,7 +89,7 @@ export default function HomeScreen() {
         error?.response?.status === 403
           ? 'Çok fazla istek yapıldı (403). Lütfen biraz bekleyip tekrar deneyin.'
           : error?.message || 'Güncelleme sırasında hata oluştu.';
-      
+
       Alert.alert('Hata', errorMsg, [{ text: 'Tamam' }]);
     } finally {
       setSyncing(prev => ({ ...prev, [type]: false }));
@@ -147,13 +149,16 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        <ScrollView
-          style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-        >
+        <View style={styles.contentView}>
+          {/* Bilgilendirme Metni - Tek satır */}
+          <View style={styles.infoContainer}>
+            <Text style={styles.infoText}>
+              * İçerikleri güncellemek için kart üzerindeki ikona basınız.
+            </Text>
+          </View>
+
           <View style={[styles.cardContainer, { flexDirection: isPhone ? 'column' : 'row' }]}>
-            
+
             {/* CANLI TV KARTI */}
             <View
               style={[
@@ -161,7 +166,7 @@ export default function HomeScreen() {
                 {
                   width: isPhone ? '100%' : isTablet ? '32%' : '32%',
                   marginRight: isPhone ? 0 : 12,
-                  marginBottom: isPhone ? 16 : 0,
+                  marginBottom: isPhone ? 8 : 0,
                 },
               ]}
             >
@@ -175,33 +180,12 @@ export default function HomeScreen() {
                   description="3000 Kanal"
                   image={require('@/assets/images/tv.png')}
                   style={styles.card}
+                  onUpdatePress={() => handleSync('channels')}
+                  isUpdating={syncing.channels}
                 />
               </TouchableOpacity>
-              
-              {/* Canlı TV Güncelle Butonu */}
-              <TouchableOpacity
-                style={[styles.updateButton, syncing.channels && styles.updateButtonDisabled]}
-                onPress={() => handleSync('channels')}
-                disabled={syncing.channels}
-                activeOpacity={0.8}
-              >
-                {syncing.channels ? (
-                  <>
-                    <ActivityIndicator size="small" color="#fff" style={{ marginRight: 8 }} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.updateButtonText} numberOfLines={1}>
-                        {syncProgress || 'Güncelleniyor...'}
-                      </Text>
-                    </View>
-                  </>
-                ) : (
-                  <>
-                    <MaterialCommunityIcons name="refresh" size={20} color="#fff" style={{ marginRight: 8 }} />
-                    <Text style={styles.updateButtonText}>Canlı TV Güncelle</Text>
-                  </>
-                )}
-              </TouchableOpacity>
             </View>
+
 
             {/* FİLMLER KARTI */}
             <View
@@ -224,33 +208,12 @@ export default function HomeScreen() {
                   description="1000 Film"
                   image={require('@/assets/images/film-rulo.png')}
                   style={styles.card}
+                  onUpdatePress={() => handleSync('movies')}
+                  isUpdating={syncing.movies}
                 />
               </TouchableOpacity>
-              
-              {/* Filmler Güncelle Butonu */}
-              <TouchableOpacity
-                style={[styles.updateButton, syncing.movies && styles.updateButtonDisabled]}
-                onPress={() => handleSync('movies')}
-                disabled={syncing.movies}
-                activeOpacity={0.8}
-              >
-                {syncing.movies ? (
-                  <>
-                    <ActivityIndicator size="small" color="#fff" style={{ marginRight: 8 }} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.updateButtonText} numberOfLines={1}>
-                        {syncProgress || 'Güncelleniyor...'}
-                      </Text>
-                    </View>
-                  </>
-                ) : (
-                  <>
-                    <MaterialCommunityIcons name="refresh" size={20} color="#fff" style={{ marginRight: 8 }} />
-                    <Text style={styles.updateButtonText}>Filmleri Güncelle</Text>
-                  </>
-                )}
-              </TouchableOpacity>
             </View>
+
 
             {/* DİZİLER KARTI */}
             <View
@@ -272,49 +235,13 @@ export default function HomeScreen() {
                   description="39842 Dizi"
                   image={require('@/assets/images/tv-start.png')}
                   style={styles.card}
+                  onUpdatePress={() => handleSync('series')}
+                  isUpdating={syncing.series}
                 />
-              </TouchableOpacity>
-
-              {/* Diziler Güncelle Butonu */}
-              <TouchableOpacity
-                style={[styles.updateButton, syncing.series && styles.updateButtonDisabled]}
-                onPress={() => handleSync('series')}
-                disabled={syncing.series}
-                activeOpacity={0.8}
-              >
-                {syncing.series ? (
-                  <>
-                    <ActivityIndicator size="small" color="#fff" style={{ marginRight: 8 }} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.updateButtonText} numberOfLines={1}>
-                        {syncProgress || 'Güncelleniyor...'}
-                      </Text>
-                    </View>
-                  </>
-                ) : (
-                  <>
-                    <MaterialCommunityIcons name="refresh" size={20} color="#fff" style={{ marginRight: 8 }} />
-                    <Text style={styles.updateButtonText}>Dizileri Güncelle</Text>
-                  </>
-                )}
               </TouchableOpacity>
             </View>
           </View>
-
-          {/* Bilgilendirme Metni */}
-          <View style={styles.infoContainer}>
-            <Text style={styles.infoText}>
-              * İçerikleri güncellemek için ilgili kartın altındaki butona basınız.
-            </Text>
-            <Text style={styles.infoText}>
-              * Film detayları artık listeye tıkladığınızda anlık olarak yüklenir ve kaydedilir.
-            </Text>
-            <Text style={styles.infoText}>
-              * İşlem tamamlandıktan sonra uygulama offline olarak çalışacaktır.
-            </Text>
-          </View>
-
-        </ScrollView>
+        </View>
       </SafeAreaView>
     </ImageBackground>
   );
@@ -369,12 +296,17 @@ const styles = StyleSheet.create({
     opacity: 0.85,
     lineHeight: 18,
   },
+  contentView: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingBottom: 20,
+  },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
     paddingHorizontal: 16,
-    paddingBottom: 80, // Daha fazla boşluk
+    paddingBottom: 40,
     flexGrow: 1,
   },
   cardContainer: {
@@ -390,7 +322,6 @@ const styles = StyleSheet.create({
   },
   card: {
     width: '100%',
-    height: Math.min(Dimensions.get('window').height * 0.2, 180), // Ekran yüksekliğinin %20'si max 180px
     justifyContent: 'flex-end',
   },
   updateButton: {
@@ -421,21 +352,21 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   infoContainer: {
-    marginTop: 24,
-    paddingHorizontal: 8,
-    paddingVertical: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderRadius: 12,
+    marginBottom: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: 'rgba(255, 255, 255, 0.15)',
   },
   infoText: {
-    color: 'rgba(255, 255, 255, 0.7)',
+    color: 'rgba(255, 255, 255, 0.85)',
     fontSize: 12,
-    marginBottom: 8,
+    marginBottom: 4,
     textAlign: 'left',
-    lineHeight: 18,
-    paddingLeft: 4,
+    lineHeight: 14,
+    paddingLeft: 2,
   },
   loadingContainer: {
     flex: 1,
