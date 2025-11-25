@@ -40,18 +40,18 @@ class SyncService {
   }
 
   // Tekil sync fonksiyonları (Dışarıdan çağrılabilir)
-  
+
   async syncChannelsOnly(): Promise<void> {
     if (this.isSyncing.get('channels')) throw new Error('Canlı TV güncellemesi zaten devam ediyor');
     this.isSyncing.set('channels', true);
-    
+
     try {
       this.reportProgress({ type: 'channels', current: 0, total: 2, message: 'Canlı TV kategorileri güncelleniyor...' });
       await this.syncLiveCategories();
-      
+
       this.reportProgress({ type: 'channels', current: 1, total: 2, message: 'Canlı TV kanalları güncelleniyor...' });
       await this.syncChannels();
-      
+
       console.log('✅ Canlı TV güncellemesi tamamlandı');
     } finally {
       this.isSyncing.set('channels', false);
@@ -65,10 +65,10 @@ class SyncService {
     try {
       this.reportProgress({ type: 'movies', current: 0, total: 2, message: 'Film kategorileri güncelleniyor...' });
       await this.syncMovieCategories();
-      
+
       this.reportProgress({ type: 'movies', current: 1, total: 2, message: 'Filmler indiriliyor (Bulk)...' });
       await this.syncMovies();
-      
+
       console.log('✅ Film güncellemesi tamamlandı');
     } finally {
       this.isSyncing.set('movies', false);
@@ -82,13 +82,38 @@ class SyncService {
     try {
       this.reportProgress({ type: 'series', current: 0, total: 2, message: 'Dizi kategorileri güncelleniyor...' });
       await this.syncSeriesCategories();
-      
+
       this.reportProgress({ type: 'series', current: 1, total: 2, message: 'Diziler indiriliyor (Bulk)...' });
       await this.syncSeries();
-      
+
       console.log('✅ Dizi güncellemesi tamamlandı');
     } finally {
       this.isSyncing.set('series', false);
+    }
+  }
+
+  /**
+   * Tüm içerikleri güvenli bir şekilde sırasıyla senkronize et
+   */
+  async startSafeSync(): Promise<void> {
+    if (Array.from(this.isSyncing.values()).some(v => v)) {
+      throw new Error('Zaten bir güncelleme işlemi devam ediyor');
+    }
+
+    try {
+      // 1. Kanallar
+      await this.syncChannelsOnly();
+
+      // 2. Filmler
+      await this.syncMoviesOnly();
+
+      // 3. Diziler
+      await this.syncSeriesOnly();
+
+      console.log('✅ Tüm senkronizasyon tamamlandı');
+    } catch (error) {
+      console.error('Safe sync error:', error);
+      throw error;
     }
   }
 
@@ -100,7 +125,7 @@ class SyncService {
     try {
       console.log('📡 Canlı TV kategorileri API\'den çekiliyor...');
       const apiCategories = await channelService.getCategories();
-      
+
       const uniqueMap = new Map();
       apiCategories.forEach((cat: any) => {
         if (!uniqueMap.has(cat.category_id)) {
@@ -141,7 +166,7 @@ class SyncService {
     try {
       console.log('📡 Film kategorileri API\'den çekiliyor...');
       const apiCategories = await movieService.getCategories();
-      
+
       const uniqueMap = new Map();
       apiCategories.forEach((cat: any) => {
         if (!uniqueMap.has(cat.category_id)) {
@@ -182,7 +207,7 @@ class SyncService {
     try {
       console.log('📡 Dizi kategorileri API\'den çekiliyor...');
       const apiCategories = await seriesService.getCategories();
-      
+
       const uniqueMap = new Map();
       apiCategories.forEach((cat: any) => {
         if (!uniqueMap.has(cat.category_id)) {
@@ -223,7 +248,7 @@ class SyncService {
     try {
       console.log('📡 Kanallar API\'den çekiliyor...');
       const apiChannels = await channelService.getChannels();
-      
+
       const localChannels = await database.get<ChannelModel>('channels').query().fetch();
       const localChannelIds = new Set(localChannels.map((c) => c.streamId.toString()));
 
@@ -264,7 +289,7 @@ class SyncService {
 
       while (batchOps.length > 0) {
         const chunk = batchOps.splice(0, CHUNK_SIZE);
-        
+
         await database.write(async () => {
           await database!.batch(chunk);
         });
@@ -287,7 +312,7 @@ class SyncService {
       console.log('📡 Filmler API\'den çekiliyor (Bulk)...');
       const apiMovies = await movieService.getMovies();
       console.log(`📦 ${apiMovies.length} film alındı`);
-      
+
       const localMovies = await database.get<MovieModel>('movies').query().fetch();
       const localMovieIds = new Set(localMovies.map((m) => m.streamId.toString()));
 
@@ -327,7 +352,7 @@ class SyncService {
 
       while (batchOps.length > 0) {
         const chunk = batchOps.splice(0, CHUNK_SIZE);
-        
+
         await database.write(async () => {
           await database!.batch(chunk);
         });
@@ -351,7 +376,7 @@ class SyncService {
       // 1. Tek büyük istek
       const apiSeries = await seriesService.getSeries();
       console.log(`📦 ${apiSeries.length} dizi alındı`);
-      
+
       // 2. Mevcut verileri kontrol et
       const localSeries = await database.get<SeriesModel>('series').query().fetch();
       const localSeriesIds = new Set(localSeries.map((s) => s.seriesId.toString()));
@@ -401,7 +426,7 @@ class SyncService {
 
       while (batchOps.length > 0) {
         const chunk = batchOps.splice(0, CHUNK_SIZE);
-        
+
         await database.write(async () => {
           await database!.batch(chunk);
         });

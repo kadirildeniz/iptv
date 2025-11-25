@@ -4,7 +4,7 @@ import { ImageBackground, Platform, SafeAreaView, ScrollView, StyleSheet, Text, 
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useState, useEffect } from 'react';
 import storageService from '@/services/storage.service';
-import { syncService } from '@/services';
+import { syncService, authService } from '@/services';
 import apiClient from '@/services/api/client';
 import { getDeviceType, getResponsiveFontSize } from '@/utils/responsive';
 
@@ -44,7 +44,7 @@ export default function HomeScreen() {
         return;
       } else {
         console.log('✅ Credentials bulundu');
-        await apiClient.loadCredentials();
+        await authService.loadCredentials();
         setCheckingAuth(false);
       }
     } catch (error) {
@@ -61,7 +61,7 @@ export default function HomeScreen() {
       setSyncing(prev => ({ ...prev, [type]: true }));
       setSyncProgress('Başlatılıyor...');
 
-      await apiClient.loadCredentials();
+      await authService.loadCredentials();
 
       // Progress takibi
       syncService.setSyncProgressCallback((progress) => {

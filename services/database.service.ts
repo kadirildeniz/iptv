@@ -4,6 +4,7 @@ import Favorite from './database/models/Favorite';
 import WatchHistory from './database/models/WatchHistory';
 import ContinueWatching from './database/models/ContinueWatching';
 import EpisodeProgress from './database/models/EpisodeProgress';
+import MovieModel from './database/models/Movie';
 
 export interface FavoriteItem {
   id: string;
@@ -106,9 +107,9 @@ class DatabaseService {
           .get<Favorite>('favorites')
           .query(Q.where('item_id', itemId))
           .fetch();
-          
+
         if (existing.length > 0) {
-            await Promise.all(existing.map(fav => fav.destroyPermanently()));
+          await Promise.all(existing.map(fav => fav.destroyPermanently()));
         }
       } catch (error) {
         console.log('Favorite not found:', itemId);
@@ -128,7 +129,7 @@ class DatabaseService {
   }): Promise<boolean> {
     try {
       const isFav = await this.isFavorite(item.id);
-      
+
       if (isFav) {
         await this.removeFromFavorites(item.id);
         return false;
@@ -189,7 +190,7 @@ class DatabaseService {
   async clearFavorites(): Promise<void> {
     if (!database) return;
     await database.write(async () => {
-      const favorites = await database
+      const favorites = await database!
         .get<Favorite>('favorites')
         .query()
         .fetch();
@@ -207,7 +208,7 @@ class DatabaseService {
   async addToHistory(item: Omit<WatchHistoryItem, 'watchedAt'>): Promise<void> {
     if (!database) return;
     await database.write(async () => {
-      await database.get<WatchHistory>('watch_history').create((history) => {
+      await database!.get<WatchHistory>('watch_history').create((history) => {
         history.itemId = item.id;
         history.itemType = item.type;
         history.title = item.title;
@@ -248,7 +249,7 @@ class DatabaseService {
   async clearHistory(): Promise<void> {
     if (!database) return;
     await database.write(async () => {
-      const history = await database
+      const history = await database!
         .get<WatchHistory>('watch_history')
         .query()
         .fetch();
@@ -262,63 +263,63 @@ class DatabaseService {
    */
   async resetDatabase(): Promise<void> {
     if (!database) return;
-    
+
     console.log('🗑️ Veritabanı sıfırlanıyor...');
-    
+
     await database.write(async () => {
       try {
         // Channels
-        const channels = await database.get('channels').query().fetch();
+        const channels = await database!.get('channels').query().fetch();
         await Promise.all(channels.map((item) => item.destroyPermanently()));
         console.log('✅ Channels silindi:', channels.length);
 
         // Movies
-        const movies = await database.get('movies').query().fetch();
+        const movies = await database!.get('movies').query().fetch();
         await Promise.all(movies.map((item) => item.destroyPermanently()));
         console.log('✅ Movies silindi:', movies.length);
 
         // Series
-        const series = await database.get('series').query().fetch();
+        const series = await database!.get('series').query().fetch();
         await Promise.all(series.map((item) => item.destroyPermanently()));
         console.log('✅ Series silindi:', series.length);
 
         // EPG Programs
-        const epgPrograms = await database.get('epg_programs').query().fetch();
+        const epgPrograms = await database!.get('epg_programs').query().fetch();
         await Promise.all(epgPrograms.map((item) => item.destroyPermanently()));
         console.log('✅ EPG Programs silindi:', epgPrograms.length);
 
         // Favorites
-        const favorites = await database.get('favorites').query().fetch();
+        const favorites = await database!.get('favorites').query().fetch();
         await Promise.all(favorites.map((item) => item.destroyPermanently()));
         console.log('✅ Favorites silindi:', favorites.length);
 
         // Watch History
-        const watchHistory = await database.get('watch_history').query().fetch();
+        const watchHistory = await database!.get('watch_history').query().fetch();
         await Promise.all(watchHistory.map((item) => item.destroyPermanently()));
         console.log('✅ Watch History silindi:', watchHistory.length);
 
         // Continue Watching
-        const continueWatching = await database.get('continue_watching').query().fetch();
+        const continueWatching = await database!.get('continue_watching').query().fetch();
         await Promise.all(continueWatching.map((item) => item.destroyPermanently()));
         console.log('✅ Continue Watching silindi:', continueWatching.length);
 
         // Live Categories
-        const liveCategories = await database.get('live_categories').query().fetch();
+        const liveCategories = await database!.get('live_categories').query().fetch();
         await Promise.all(liveCategories.map((item) => item.destroyPermanently()));
         console.log('✅ Live Categories silindi:', liveCategories.length);
 
         // Movie Categories
-        const movieCategories = await database.get('movie_categories').query().fetch();
+        const movieCategories = await database!.get('movie_categories').query().fetch();
         await Promise.all(movieCategories.map((item) => item.destroyPermanently()));
         console.log('✅ Movie Categories silindi:', movieCategories.length);
 
         // Series Categories
-        const seriesCategories = await database.get('series_categories').query().fetch();
+        const seriesCategories = await database!.get('series_categories').query().fetch();
         await Promise.all(seriesCategories.map((item) => item.destroyPermanently()));
         console.log('✅ Series Categories silindi:', seriesCategories.length);
 
         // Episode Progress
-        const episodeProgress = await database.get('episode_progress').query().fetch();
+        const episodeProgress = await database!.get('episode_progress').query().fetch();
         await Promise.all(episodeProgress.map((item) => item.destroyPermanently()));
         console.log('✅ Episode Progress silindi:', episodeProgress.length);
 
@@ -342,7 +343,7 @@ class DatabaseService {
     await database.write(async () => {
       try {
         // Önce var mı kontrol et
-        const existing = await database
+        const existing = await database!
           .get<ContinueWatching>('continue_watching')
           .query(Q.where('item_id', item.id))
           .fetch();
@@ -360,7 +361,7 @@ class DatabaseService {
           });
         } else {
           // Yoksa yeni oluştur
-          await database.get<ContinueWatching>('continue_watching').create((cw) => {
+          await database!.get<ContinueWatching>('continue_watching').create((cw) => {
             cw.itemId = item.id;
             cw.itemType = item.type;
             cw.title = item.title;
@@ -373,7 +374,7 @@ class DatabaseService {
           });
         }
       } catch (error) {
-         console.error('Save continue watching error:', error);
+        console.error('Save continue watching error:', error);
       }
     });
   }
@@ -383,7 +384,7 @@ class DatabaseService {
    */
   async getContinueWatching(): Promise<ContinueWatchingItem[]> {
     if (!database) return [];
-    const continueWatching = await database
+    const continueWatching = await database!
       .get<ContinueWatching>('continue_watching')
       .query()
       .fetch();
@@ -437,17 +438,31 @@ class DatabaseService {
     if (!database) return;
     await database.write(async () => {
       try {
-        const existing = await database
+        const existing = await database!
           .get<ContinueWatching>('continue_watching')
           .query(Q.where('item_id', itemId))
           .fetch();
-        
+
         if (existing.length > 0) {
-            await Promise.all(existing.map(item => item.destroyPermanently()));
+          await Promise.all(existing.map(item => item.destroyPermanently()));
         }
       } catch (error) {
         console.log('Continue watching item not found:', itemId);
       }
+    });
+  }
+
+  /**
+   * Tüm izlemeye devam et listesini temizle
+   */
+  async clearContinueWatching(): Promise<void> {
+    if (!database) return;
+    await database.write(async () => {
+      const items = await database!
+        .get<ContinueWatching>('continue_watching')
+        .query()
+        .fetch();
+      await Promise.all(items.map((item) => item.destroyPermanently()));
     });
   }
 
@@ -463,10 +478,9 @@ class DatabaseService {
     await database.write(async () => {
       try {
         // Önce var mı kontrol et
-        const existing = await database
+        const existing = await database!
           .get<EpisodeProgress>('episode_progress')
-          .query()
-          .where('episode_id', item.episodeId)
+          .query(Q.where('episode_id', item.episodeId))
           .fetch();
 
         if (existing.length > 0) {
@@ -480,7 +494,7 @@ class DatabaseService {
           });
         } else {
           // Yoksa yeni oluştur
-          await database.get<EpisodeProgress>('episode_progress').create((ep) => {
+          await database!.get<EpisodeProgress>('episode_progress').create((ep) => {
             ep.seriesId = item.seriesId;
             ep.seasonNumber = item.seasonNumber;
             ep.episodeNumber = item.episodeNumber;
@@ -505,10 +519,9 @@ class DatabaseService {
   async getEpisodeProgress(episodeId: string): Promise<EpisodeProgressItem | null> {
     if (!database) return null;
     try {
-      const progress = await database
+      const progress = await database!
         .get<EpisodeProgress>('episode_progress')
-        .query()
-        .where('episode_id', episodeId)
+        .query(Q.where('episode_id', episodeId))
         .fetch();
 
       if (progress.length === 0) return null;
@@ -535,10 +548,9 @@ class DatabaseService {
    */
   async getSeriesEpisodeProgress(seriesId: string): Promise<EpisodeProgressItem[]> {
     if (!database) return [];
-    const progress = await database
+    const progress = await database!
       .get<EpisodeProgress>('episode_progress')
-      .query()
-      .where('series_id', seriesId)
+      .query(Q.where('series_id', seriesId))
       .fetch();
 
     return progress.map((item) => ({
@@ -552,6 +564,39 @@ class DatabaseService {
       duration: item.duration,
       watched: item.watched,
     }));
+  }
+
+  // ============================================
+  // SEARCH
+  // ============================================
+
+  /**
+   * Filmleri isme göre ara (LIKE sorgusu)
+   */
+  async searchMovies(query: string, limit: number = 20): Promise<any[]> {
+    const db = database;
+    if (!db) return [];
+    try {
+      // Basit bir LIKE sorgusu
+      const movies = await db
+        .get<MovieModel>('movies')
+        .query(
+          Q.where('name', Q.like(`%${query}%`)),
+          Q.take(limit)
+        )
+        .fetch();
+
+      return movies.map(m => ({
+        id: m.streamId,
+        title: m.name,
+        poster: m.streamIcon,
+        rating: m.rating,
+        streamUrl: '', // URL oluşturmak için credentials lazım, şimdilik boş
+      }));
+    } catch (error) {
+      console.error('Search movies error:', error);
+      return [];
+    }
   }
 }
 

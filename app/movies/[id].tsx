@@ -11,10 +11,13 @@ import {
   TouchableOpacity,
   FlatList,
   TextInput,
+  Modal,
+  Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { movieService, databaseService, database, storageService, type Movie } from '@/services';
+import { movieService, databaseService, database, storageService, tmdbService, type Movie } from '@/services';
+import YoutubePlayer from 'react-native-youtube-iframe';
 import { fonts } from '@/theme/fonts';
 import apiClient from '@/services/api/client';
 import { buildMovieUrl } from '@/services/api/endpoints';
@@ -32,6 +35,9 @@ const MovieDetail: React.FC = () => {
   const [isPlayerVisible, setIsPlayerVisible] = useState(false);
   const [isFavorite, setIsFavorite] = useState(false);
   const [isTogglingFavorite, setIsTogglingFavorite] = useState(false);
+  const [trailerKey, setTrailerKey] = useState<string | null>(null);
+  const [isTrailerVisible, setIsTrailerVisible] = useState(false);
+  const [loadingTrailer, setLoadingTrailer] = useState(false);
 
   useEffect(() => {
     if (id) {
@@ -61,7 +67,7 @@ const MovieDetail: React.FC = () => {
             if (credentials && baseUrl) {
               let fullBaseUrl = baseUrl;
               if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
-                  fullBaseUrl = `${credentials.protocol || 'http'}://${baseUrl}`;
+                fullBaseUrl = `${credentials.protocol || 'http'}://${baseUrl}`;
               }
 
               streamUrl = buildMovieUrl(
@@ -74,56 +80,56 @@ const MovieDetail: React.FC = () => {
             }
 
             movieData = {
-                num: 1,
-                stream_id: dbMovie.streamId,
-                name: dbMovie.name,
-                stream_type: dbMovie.streamType,
-                stream_icon: dbMovie.streamIcon || '',
-                rating: dbMovie.rating || '',
-                rating_5based: dbMovie.rating5based || 0,
-                category_id: dbMovie.categoryId,
-                category_ids: dbMovie.categoryIds ? JSON.parse(dbMovie.categoryIds) : [],
-                added: dbMovie.added || '',
-                container_extension: dbMovie.containerExtension || '',
-                custom_sid: dbMovie.customSid || '',
-                direct_source: dbMovie.directSource || '',
-                streamUrl: streamUrl,
+              num: 1,
+              stream_id: dbMovie.streamId,
+              name: dbMovie.name,
+              stream_type: dbMovie.streamType,
+              stream_icon: dbMovie.streamIcon || '',
+              rating: dbMovie.rating || '',
+              rating_5based: dbMovie.rating5based || 0,
+              category_id: dbMovie.categoryId,
+              category_ids: dbMovie.categoryIds ? JSON.parse(dbMovie.categoryIds) : [],
+              added: dbMovie.added || '',
+              container_extension: dbMovie.containerExtension || '',
+              custom_sid: dbMovie.customSid || '',
+              direct_source: dbMovie.directSource || '',
+              streamUrl: streamUrl,
             };
 
-              setMovie(movieData);
-              const isFav = await databaseService.isFavorite(movieData.stream_id.toString());
-              setIsFavorite(isFav);
+            setMovie(movieData);
+            const isFav = await databaseService.isFavorite(movieData.stream_id.toString());
+            setIsFavorite(isFav);
 
-              // Detaylar DB'de var mı kontrol et
-              if (dbMovie.plot || dbMovie.cast || dbMovie.director) {
-                const backdropPath = dbMovie.backdropPath ? JSON.parse(dbMovie.backdropPath) : [];
-                
-                setMovieInfo({
-                  info: {
-                    plot: dbMovie.plot || '',
-                    description: dbMovie.plot || '',
-                    cast: dbMovie.cast || '',
-                    actors: dbMovie.cast || '',
-                    director: dbMovie.director || '',
-                    genre: dbMovie.genre || '',
-                    releasedate: dbMovie.releaseDate || '',
-                    duration: dbMovie.duration || '',
-                    duration_secs: dbMovie.durationSecs ? parseInt(dbMovie.durationSecs) : undefined,
-                    backdrop_path: backdropPath,
-                    youtube_trailer: dbMovie.youtubeTrailer || '',
-                    tmdb_id: dbMovie.tmdbId || '',
-                    country: dbMovie.country || '',
-                    age: dbMovie.ageRating || '',
-                    movie_image: dbMovie.streamIcon || '',
-                    cover_big: dbMovie.streamIcon || '',
-                  },
-                  movie_data: movieData,
-                });
-                
-                detailsLoaded = true;
-                console.log('✅ Film detayları cache\'den (DB) yüklendi');
-              }
+            // Detaylar DB'de var mı kontrol et
+            if (dbMovie.plot || dbMovie.cast || dbMovie.director) {
+              const backdropPath = dbMovie.backdropPath ? JSON.parse(dbMovie.backdropPath) : [];
+
+              setMovieInfo({
+                info: {
+                  plot: dbMovie.plot || '',
+                  description: dbMovie.plot || '',
+                  cast: dbMovie.cast || '',
+                  actors: dbMovie.cast || '',
+                  director: dbMovie.director || '',
+                  genre: dbMovie.genre || '',
+                  releasedate: dbMovie.releaseDate || '',
+                  duration: dbMovie.duration || '',
+                  duration_secs: dbMovie.durationSecs ? parseInt(dbMovie.durationSecs) : undefined,
+                  backdrop_path: backdropPath,
+                  youtube_trailer: dbMovie.youtubeTrailer || '',
+                  tmdb_id: dbMovie.tmdbId || '',
+                  country: dbMovie.country || '',
+                  age: dbMovie.ageRating || '',
+                  movie_image: dbMovie.streamIcon || '',
+                  cover_big: dbMovie.streamIcon || '',
+                },
+                movie_data: movieData,
+              });
+
+              detailsLoaded = true;
+              console.log('✅ Film detayları cache\'den (DB) yüklendi');
             }
+          }
         } catch (dbError) {
           console.warn('Database read error:', dbError);
         }
@@ -133,53 +139,53 @@ const MovieDetail: React.FC = () => {
       if (!detailsLoaded) {
         console.log('⏳ Detaylar eksik, API\'den çekiliyor (Lazy Load)...');
         setRefreshing(true);
-        
-        try {
-           // Eğer temel veri bile yoksa önce onu al (Fallback)
-           if (!movieData) {
-             movieData = await movieService.getMovieById(id);
-             if (movieData) {
-               setMovie(movieData);
-               // Favori durumunu kontrol et
-               const isFav = await databaseService.isFavorite(movieData.stream_id.toString());
-               setIsFavorite(isFav);
-             }
-           }
 
-           if (movieData) {
-             const apiMovieInfo = await movieService.getMovieInfo(id);
-             setMovieInfo(apiMovieInfo);
-             
-             // 3. Gelen detayları DB'ye kaydet (Cache Update)
-             if (database) {
-               const dbMovies = await database.get<MovieModel>('movies').query().fetch();
-               const localMovie = dbMovies.find(m => m.streamId.toString() === id);
-               
-               if (localMovie) {
-                  await database.write(async () => {
-                    await localMovie.update(m => {
-                      if (apiMovieInfo.info) {
-                        m.plot = apiMovieInfo.info.plot || apiMovieInfo.info.description || undefined;
-                        m.cast = apiMovieInfo.info.cast || apiMovieInfo.info.actors || undefined;
-                        m.director = apiMovieInfo.info.director || undefined;
-                        m.genre = apiMovieInfo.info.genre || undefined;
-                        m.releaseDate = apiMovieInfo.info.releasedate || undefined;
-                        m.duration = apiMovieInfo.info.duration || undefined;
-                        m.durationSecs = apiMovieInfo.info.duration_secs?.toString() || undefined;
-                        m.backdropPath = JSON.stringify((apiMovieInfo.info as any).backdrop_path || []);
-                        m.youtubeTrailer = apiMovieInfo.info.youtube_trailer || undefined;
-                        m.tmdbId = apiMovieInfo.info.tmdb_id || undefined;
-                        m.country = apiMovieInfo.info.country || undefined;
-                        m.ageRating = apiMovieInfo.info.age || apiMovieInfo.info.mpaa_rating || undefined;
-                      }
-                    });
+        try {
+          // Eğer temel veri bile yoksa önce onu al (Fallback)
+          if (!movieData) {
+            movieData = await movieService.getMovieById(id);
+            if (movieData) {
+              setMovie(movieData);
+              // Favori durumunu kontrol et
+              const isFav = await databaseService.isFavorite(movieData.stream_id.toString());
+              setIsFavorite(isFav);
+            }
+          }
+
+          if (movieData) {
+            const apiMovieInfo = await movieService.getMovieInfo(id);
+            setMovieInfo(apiMovieInfo);
+
+            // 3. Gelen detayları DB'ye kaydet (Cache Update)
+            if (database) {
+              const dbMovies = await database.get<MovieModel>('movies').query().fetch();
+              const localMovie = dbMovies.find(m => m.streamId.toString() === id);
+
+              if (localMovie) {
+                await database.write(async () => {
+                  await localMovie.update(m => {
+                    if (apiMovieInfo.info) {
+                      m.plot = apiMovieInfo.info.plot || apiMovieInfo.info.description || undefined;
+                      m.cast = apiMovieInfo.info.cast || apiMovieInfo.info.actors || undefined;
+                      m.director = apiMovieInfo.info.director || undefined;
+                      m.genre = apiMovieInfo.info.genre || undefined;
+                      m.releaseDate = apiMovieInfo.info.releasedate || undefined;
+                      m.duration = apiMovieInfo.info.duration || undefined;
+                      m.durationSecs = apiMovieInfo.info.duration_secs?.toString() || undefined;
+                      m.backdropPath = JSON.stringify((apiMovieInfo.info as any).backdrop_path || []);
+                      m.youtubeTrailer = apiMovieInfo.info.youtube_trailer || undefined;
+                      m.tmdbId = apiMovieInfo.info.tmdb_id || undefined;
+                      m.country = apiMovieInfo.info.country || undefined;
+                      m.ageRating = apiMovieInfo.info.age || apiMovieInfo.info.mpaa_rating || undefined;
+                    }
                   });
-                  console.log('💾 Detaylar DB\'ye kaydedildi (Cache Updated)');
-               }
-             }
-           } else {
-             setError('Film bulunamadı');
-           }
+                });
+                console.log('💾 Detaylar DB\'ye kaydedildi (Cache Updated)');
+              }
+            }
+          } else {
+            setError('Film bulunamadı');
+          }
         } catch (apiError) {
           console.error('Lazy load error:', apiError);
           // API hatası olsa bile temel verilerle göstermeye devam et
@@ -254,8 +260,8 @@ const MovieDetail: React.FC = () => {
   }
 
   if (!movie && !error) {
-      // Yükleniyor olabilir veya veri yok
-      return null; 
+    // Yükleniyor olabilir veya veri yok
+    return null;
   }
 
   if (!movie || error) {
@@ -285,20 +291,20 @@ const MovieDetail: React.FC = () => {
 
   const genres = baseInfo.genre
     ? String(baseInfo.genre)
-        .split(/[,|]/)
-        .map((g: string) => g.trim())
-        .filter(Boolean)
+      .split(/[,|]/)
+      .map((g: string) => g.trim())
+      .filter(Boolean)
     : [];
 
   const rawCast: Array<any> = Array.isArray(baseInfo.actor_list)
     ? baseInfo.actor_list
     : Array.isArray(baseInfo.cast_list)
-    ? baseInfo.cast_list
-    : baseInfo.actors || baseInfo.cast
-    ? String(baseInfo.actors || baseInfo.cast)
-        .split(',')
-        .map((name: string) => ({ name: name.trim() }))
-    : [];
+      ? baseInfo.cast_list
+      : baseInfo.actors || baseInfo.cast
+        ? String(baseInfo.actors || baseInfo.cast)
+          .split(',')
+          .map((name: string) => ({ name: name.trim() }))
+        : [];
 
   const castList: Array<{ name: string; role?: string; image?: string | null }> = rawCast
     .map((member: any) => ({
@@ -353,6 +359,32 @@ const MovieDetail: React.FC = () => {
       console.error('Favori güncelleme hatası:', favoriteError);
     } finally {
       setIsTogglingFavorite(false);
+    }
+  };
+
+  const handleWatchTrailer = async () => {
+    if (!movie) return;
+
+    // Eğer daha önce çekildiyse direkt aç
+    if (trailerKey) {
+      setIsTrailerVisible(true);
+      return;
+    }
+
+    try {
+      setLoadingTrailer(true);
+      const key = await tmdbService.getTrailerVideo(movie.name);
+      if (key) {
+        setTrailerKey(key);
+        setIsTrailerVisible(true);
+      } else {
+        alert('Fragman bulunamadı.');
+      }
+    } catch (e) {
+      console.error('Fragman hatası:', e);
+      alert('Fragman yüklenirken hata oluştu.');
+    } finally {
+      setLoadingTrailer(false);
     }
   };
 
@@ -422,6 +454,22 @@ const MovieDetail: React.FC = () => {
                     <Text style={styles.ratingText}>IMDb {ratingValue}</Text>
                   </View>
                 )}
+
+                <TouchableOpacity
+                  style={[styles.trailerButton, loadingTrailer && styles.trailerButtonDisabled]}
+                  activeOpacity={0.9}
+                  onPress={handleWatchTrailer}
+                  disabled={loadingTrailer}
+                >
+                  {loadingTrailer ? (
+                    <ActivityIndicator size="small" color="#dc2626" />
+                  ) : (
+                    <Ionicons name="logo-youtube" size={18} color="#dc2626" style={{ marginRight: 8 }} />
+                  )}
+                  <Text style={styles.trailerButtonText}>
+                    {loadingTrailer ? 'Aranıyor...' : 'Fragman İzle'}
+                  </Text>
+                </TouchableOpacity>
               </View>
             </View>
           </View>
@@ -430,10 +478,10 @@ const MovieDetail: React.FC = () => {
         <View style={styles.body}>
           {/* Lazy Load Yükleniyor Göstergesi */}
           {refreshing && !description && (
-             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
-                <ActivityIndicator size="small" color="#0ea5e9" style={{ marginRight: 10 }}/>
-                <Text style={{ color: '#94a3b8', fontSize: 13 }}>Detaylar yükleniyor...</Text>
-             </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
+              <ActivityIndicator size="small" color="#0ea5e9" style={{ marginRight: 10 }} />
+              <Text style={{ color: '#94a3b8', fontSize: 13 }}>Detaylar yükleniyor...</Text>
+            </View>
           )}
 
           {description && (
@@ -518,6 +566,35 @@ const MovieDetail: React.FC = () => {
           )}
         </View>
       </ScrollView>
+
+      <Modal
+        visible={isTrailerVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setIsTrailerVisible(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <YoutubePlayer
+              height={Dimensions.get('window').height}
+              width={Dimensions.get('window').width}
+              play={true}
+              videoId={trailerKey || ''}
+              onChangeState={(state: string) => {
+                if (state === 'ended') {
+                  setIsTrailerVisible(false);
+                }
+              }}
+            />
+            <TouchableOpacity
+              style={styles.closeModalButton}
+              onPress={() => setIsTrailerVisible(false)}
+            >
+              <Ionicons name="close" size={32} color="#fff" />
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -637,6 +714,27 @@ const styles = StyleSheet.create({
   },
   playButtonText: {
     color: '#ffffff',
+    fontSize: 14,
+    fontFamily: fonts.semibold,
+    letterSpacing: 0.4,
+  },
+  trailerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    shadowColor: '#ffffff',
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 8 },
+  },
+  trailerButtonDisabled: {
+    opacity: 0.7,
+  },
+  trailerButtonText: {
+    color: '#dc2626',
     fontSize: 14,
     fontFamily: fonts.semibold,
     letterSpacing: 0.4,
@@ -797,6 +895,28 @@ const styles = StyleSheet.create({
     color: 'rgba(226, 232, 240, 0.6)',
     fontSize: 12,
     fontFamily: fonts.regular,
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: '#000',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#000',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  closeModalButton: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 50 : 30,
+    right: 20,
+    zIndex: 999,
+    padding: 10,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 25,
   },
   center: {
     justifyContent: 'center',

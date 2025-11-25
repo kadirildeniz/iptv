@@ -16,6 +16,9 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import * as FileSystem from 'expo-file-system';
+import * as Application from 'expo-application';
+import Constants from 'expo-constants';
 import { storageService, authService, databaseService } from '@/services';
 import { fonts } from '@/theme/fonts';
 import syncService from '@/services/sync.service';
@@ -42,6 +45,22 @@ interface SettingSection {
   data: SettingItem[];
 }
 
+const formatBytes = (bytes: number, decimals = 2) => {
+  if (bytes === 0) return '0 MB';
+  const k = 1024;
+  const dm = decimals < 0 ? 0 : decimals;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+};
+
+const maskUrl = (url: string): string => {
+  if (!url) return '';
+  const parts = url.split('.');
+  if (parts.length < 2) return url;
+  return `${parts[0].substring(0, 3)}***${parts[parts.length - 1]}`;
+};
+
 const SettingsScreen: React.FC = () => {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -56,10 +75,14 @@ const SettingsScreen: React.FC = () => {
   const [audioBoost, setAudioBoost] = useState<number>(1.0);
   const [dialogEnhancement, setDialogEnhancement] = useState<boolean>(false);
   const [hwDecoder, setHwDecoder] = useState<boolean>(true);
+  const [bufferMode, setBufferMode] = useState<'low' | 'normal' | 'high'>('normal');
   const [parentalControl, setParentalControl] = useState<boolean>(false);
+  const [cacheSize, setCacheSize] = useState<string>('Hesaplanıyor...');
+  const [appVersion, setAppVersion] = useState<string>('1.0.0');
 
   // Modal States
   const [audioBoostModal, setAudioBoostModal] = useState(false);
+  const [bufferModeModal, setBufferModeModal] = useState(false);
   const [serverModal, setServerModal] = useState(false);
   const [serverUrl, setServerUrl] = useState('');
   const [savingServer, setSavingServer] = useState(false);
@@ -95,13 +118,49 @@ const SettingsScreen: React.FC = () => {
     try {
       const creds = await storageService.getCredentials();
       setCredentials(creds);
+      if (creds?.host) {
+        setServerUrl(creds.host);
+      }
     } catch (error) {
       console.error('Credentials load error:', error);
     }
   };
 
+  const calculateCacheSize = async () => {
+    try {
+      let totalSize = 0;
+
+      // FileSystem Cache
+      const cacheDir = (FileSystem as any).cacheDirectory;
+      if (cacheDir) {
+        const cacheInfo = await FileSystem.getInfoAsync(cacheDir);
+        if (cacheInfo.exists && cacheInfo.isDirectory) {
+          const files = await FileSystem.readDirectoryAsync(cacheDir);
+          for (const file of files) {
+            const fileInfo = await FileSystem.getInfoAsync(cacheDir + file);
+            if (fileInfo.exists && !fileInfo.isDirectory) {
+              totalSize += fileInfo.size;
+            }
+          }
+        }
+      }
+
+      setCacheSize(formatBytes(totalSize));
+    } catch (error) {
+      console.error('Cache calculation error:', error);
+      setCacheSize('Bilinmiyor');
+    }
+  };
+
   const loadSettings = async () => {
     try {
+      // App Version
+      const version = Application.nativeApplicationVersion || Constants.expoConfig?.version || '1.0.0';
+      setAppVersion(version);
+
+      // Cache Size
+      calculateCacheSize();
+
       // Audio Boost
       const savedAudioBoost = await storageService.getItem<string>('audio_boost_level');
       if (savedAudioBoost) setAudioBoost(parseFloat(savedAudioBoost));
@@ -114,6 +173,10 @@ const SettingsScreen: React.FC = () => {
       const savedHW = await storageService.getItem<string>('hw_decoder');
       if (savedHW !== null) setHwDecoder(savedHW === 'true');
       else setHwDecoder(true); // Default true
+
+      // Buffer Mode
+      const savedBuffer = await storageService.getItem<string>('buffer_mode');
+      if (savedBuffer) setBufferMode(savedBuffer as 'low' | 'normal' | 'high');
 
       // Parental Control
       const savedParental = await storageService.getItem<string>('parental_control');
@@ -151,100 +214,48 @@ const SettingsScreen: React.FC = () => {
     await storageService.setItem('hw_decoder', value.toString());
   };
 
-  const saveParentalControl = async (value: boolean) => {
-    setParentalControl(value);
-    await storageService.setItem('parental_control', value.toString());
+  const saveBufferMode = async (value: 'low' | 'normal' | 'high') => {
+    setBufferMode(value);
+    await storageService.saveBufferMode(value);
   };
 
   const handleSync = async () => {
     if (syncing) return;
 
-    try {
-      setSyncing(true);
-      
-      Alert.alert(
-        'Senkronizasyon',
-        'Hangi içeriği güncellemek istersiniz?',
-        [
-          { text: 'İptal', style: 'cancel', onPress: () => setSyncing(false) },
-          {
-            text: 'Canlı TV',
-            onPress: async () => {
-              try {
-                await syncService.syncChannelsOnly();
-                await storageService.setItem('last_sync_time', Date.now().toString());
-                await loadSettings();
-                Alert.alert('Başarılı', 'Canlı TV kanalları güncellendi');
-              } catch (error: any) {
-                Alert.alert('Hata', error.message || 'Senkronizasyon başarısız');
-              } finally {
-                setSyncing(false);
-              }
-            },
-          },
-          {
-            text: 'Filmler',
-            onPress: async () => {
-              try {
-                await syncService.syncMoviesOnly();
-                await storageService.setItem('last_sync_time', Date.now().toString());
-                await loadSettings();
-                Alert.alert('Başarılı', 'Filmler güncellendi');
-              } catch (error: any) {
-                Alert.alert('Hata', error.message || 'Senkronizasyon başarısız');
-              } finally {
-                setSyncing(false);
-              }
-            },
-          },
-          {
-            text: 'Diziler',
-            onPress: async () => {
-              try {
-                await syncService.syncSeriesOnly();
-                await storageService.setItem('last_sync_time', Date.now().toString());
-                await loadSettings();
-                Alert.alert('Başarılı', 'Diziler güncellendi');
-              } catch (error: any) {
-                Alert.alert('Hata', error.message || 'Senkronizasyon başarısız');
-              } finally {
-                setSyncing(false);
-              }
-            },
-          },
-        ]
-      );
-    } catch (error) {
-      setSyncing(false);
-    }
-  };
-
-  const handleClearCache = () => {
     Alert.alert(
-      'Önbelleği Temizle',
-      'Resim önbelleği temizlenecek. Devam edilsin mi?',
+      'İçeriği Güncelle',
+      'Tüm içerikler (Kanallar, Filmler, Diziler) sunucudan tekrar indirilecektir. Bu işlem internet hızınıza bağlı olarak zaman alabilir.',
       [
         { text: 'İptal', style: 'cancel' },
         {
-          text: 'Temizle',
-          style: 'destructive',
+          text: 'Güncelle',
           onPress: async () => {
             try {
-              // Burada image cache temizleme yapılabilir
-              Alert.alert('Başarılı', 'Önbellek temizlendi');
-            } catch (error) {
-              Alert.alert('Hata', 'Önbellek temizlenirken bir hata oluştu');
+              setSyncing(true);
+              await syncService.startSafeSync();
+
+              // Update last sync time
+              const now = Date.now().toString();
+              await storageService.setItem('last_sync_time', now);
+              setLastSync('Az önce');
+
+              Alert.alert('Başarılı', 'Tüm içerikler başarıyla güncellendi.');
+            } catch (error: any) {
+              console.error('Sync error:', error);
+              Alert.alert('Hata', error.message || 'Güncelleme sırasında bir hata oluştu.');
+            } finally {
+              setSyncing(false);
             }
-          },
-        },
+          }
+        }
       ]
     );
   };
 
-  const handleClearHistory = () => {
+  const handleClearHistory = async () => {
     Alert.alert(
       'Geçmişi Temizle',
-      'Tüm izleme geçmişi silinecek. Devam edilsin mi?',
+      'İzleme geçmişiniz ve kaldığınız yerler silinecektir. Onaylıyor musunuz?',
       [
         { text: 'İptal', style: 'cancel' },
         {
@@ -253,43 +264,71 @@ const SettingsScreen: React.FC = () => {
           onPress: async () => {
             try {
               await databaseService.clearHistory();
-              Alert.alert('Başarılı', 'İzleme geçmişi temizlendi');
+              await databaseService.clearContinueWatching();
+              Alert.alert('Başarılı', 'İzleme geçmişi temizlendi.');
             } catch (error) {
-              Alert.alert('Hata', 'Geçmiş temizlenirken bir hata oluştu');
+              console.error('Clear history error:', error);
+              Alert.alert('Hata', 'Geçmiş temizlenirken bir hata oluştu.');
             }
-          },
-        },
+          }
+        }
       ]
     );
   };
 
-  const handleLogout = () => {
+  const handleClearFavorites = async () => {
     Alert.alert(
-      'Çıkış Yap',
-      'Çıkış yapmak istediğinize emin misiniz?',
+      'Favorileri Temizle',
+      'Tüm favorileriniz silinecektir. Onaylıyor musunuz?',
       [
         { text: 'İptal', style: 'cancel' },
         {
-          text: 'Çıkış Yap',
+          text: 'Temizle',
           style: 'destructive',
           onPress: async () => {
             try {
-              await storageService.clearCredentials();
-              router.replace('/login');
+              await databaseService.clearFavorites();
+              Alert.alert('Başarılı', 'Favoriler temizlendi.');
             } catch (error) {
-              Alert.alert('Hata', 'Çıkış yapılırken bir hata oluştu');
+              console.error('Clear favorites error:', error);
+              Alert.alert('Hata', 'Favoriler temizlenirken bir hata oluştu.');
             }
-          },
-        },
+          }
+        }
       ]
     );
   };
 
-  const openServerModal = () => {
-    if (credentials?.host) {
-      setServerUrl(credentials.host);
-    }
-    setServerModal(true);
+  const handleClearCache = async () => {
+    Alert.alert(
+      'Önbelleği Temizle',
+      'Uygulama önbelleği temizlenecektir. Bu işlem biraz zaman alabilir.',
+      [
+        { text: 'İptal', style: 'cancel' },
+        {
+          text: 'Temizle',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              // Clear cache directory if possible, or just specific files
+              // For safety, we'll just try to clear the cache directory contents
+              const cacheDir = (FileSystem as any).cacheDirectory;
+              if (cacheDir) {
+                const files = await FileSystem.readDirectoryAsync(cacheDir);
+                for (const file of files) {
+                  await FileSystem.deleteAsync(cacheDir + file, { idempotent: true });
+                }
+              }
+              calculateCacheSize(); // Recalculate
+              Alert.alert('Başarılı', 'Önbellek temizlendi.');
+            } catch (error) {
+              console.error('Clear cache error:', error);
+              Alert.alert('Hata', 'Önbellek temizlenirken bir hata oluştu.');
+            }
+          }
+        }
+      ]
+    );
   };
 
   const handleSaveServer = async () => {
@@ -298,7 +337,6 @@ const SettingsScreen: React.FC = () => {
       return;
     }
 
-    // Önce kullanıcıya uyarı göster
     Alert.alert(
       '⚠️ Sunucu Değişimi',
       'Sunucu değiştiğinde tüm veriler, favoriler ve izleme geçmişi silinecektir. Yeni sunucudan veriler tekrar indirilecektir.\n\nOnaylıyor musunuz?',
@@ -314,16 +352,14 @@ const SettingsScreen: React.FC = () => {
             try {
               setSavingServer(true);
 
-              // Mevcut credentials'ı al
               const currentCredentials = await storageService.getCredentials();
-              
+
               if (!currentCredentials) {
                 Alert.alert('Hata', 'Hesap bilgileri bulunamadı');
                 setSavingServer(false);
                 return;
               }
 
-              // Sadece host'u güncelle, diğer bilgiler aynı kalsın
               const newCredentials = {
                 ...currentCredentials,
                 host: serverUrl.trim(),
@@ -331,7 +367,6 @@ const SettingsScreen: React.FC = () => {
 
               console.log('🔄 Yeni sunucu ile bağlantı test ediliyor...');
 
-              // Yeni sunucu ile bağlantı testi yap
               try {
                 await authService.login(newCredentials);
                 console.log('✅ Yeni sunucu ile bağlantı başarılı');
@@ -346,25 +381,17 @@ const SettingsScreen: React.FC = () => {
               }
 
               console.log('🗑️ Eski veriler siliniyor...');
-              
-              // Veritabanını sıfırla (Eski sunucudan gelen tüm veriler silinir)
               await databaseService.resetDatabase();
 
               console.log('💾 Yeni credentials kaydediliyor...');
-              
-              // Yeni credentials'ı kaydet
               await storageService.saveCredentials(newCredentials);
-
-              // Son senkronizasyon zamanını sıfırla
               await storageService.removeItem('last_sync_time');
 
-              // Modal'ı kapat
               setServerModal(false);
               setSavingServer(false);
 
               console.log('✅ Sunucu değişimi tamamlandı');
 
-              // Kullanıcıyı ana sayfaya yönlendir ve bilgilendir
               Alert.alert(
                 '✅ Başarılı',
                 'Sunucu adresi güncellendi ve eski veriler temizlendi. Ana sayfadan "Güncelle" butonuna basarak yeni içerikleri indirebilirsiniz.',
@@ -400,14 +427,6 @@ const SettingsScreen: React.FC = () => {
     return `${value}x`;
   };
 
-  const maskUrl = (url: string): string => {
-    if (!url) return '';
-    const parts = url.split('.');
-    if (parts.length < 2) return url;
-    return `${parts[0].substring(0, 3)}***${parts[parts.length - 1]}`;
-  };
-
-  // Sections Data
   const sections: SettingSection[] = [
     {
       title: 'HESAP',
@@ -429,7 +448,7 @@ const SettingsScreen: React.FC = () => {
           type: 'action',
           value: credentials?.host ? maskUrl(credentials.host) : 'Bilinmiyor',
           badge: 'Düzenle',
-          onPress: openServerModal,
+          onPress: () => setServerModal(true),
         },
         {
           id: 'expiry',
@@ -470,6 +489,14 @@ const SettingsScreen: React.FC = () => {
           value: hwDecoder,
           onValueChange: saveHWDecoder,
         },
+        {
+          id: 'buffer_mode',
+          title: 'Tampon Bellek (Buffer)',
+          icon: 'speedometer-outline',
+          type: 'selector',
+          value: bufferMode === 'low' ? 'Düşük' : bufferMode === 'high' ? 'Yüksek' : 'Normal',
+          onPress: () => setBufferModeModal(true),
+        },
       ],
     },
     {
@@ -479,18 +506,17 @@ const SettingsScreen: React.FC = () => {
         {
           id: 'sync',
           title: 'İçeriği Güncelle',
-          icon: 'cloud-download-outline',
+          icon: 'refresh-outline',
           type: 'action',
-          value: syncing ? 'Güncelleniyor...' : `Son: ${lastSync}`,
+          value: lastSync,
           onPress: handleSync,
         },
         {
           id: 'clear_cache',
-          title: 'Resim Önbelleği',
-          icon: 'images-outline',
+          title: 'Önbelleği Temizle',
+          icon: 'trash-outline',
           type: 'action',
-          value: '~150 MB',
-          badge: 'Temizle',
+          value: cacheSize,
           onPress: handleClearCache,
         },
         {
@@ -498,36 +524,29 @@ const SettingsScreen: React.FC = () => {
           title: 'Geçmişi Temizle',
           icon: 'time-outline',
           type: 'action',
+          danger: true,
           onPress: handleClearHistory,
+        },
+        {
+          id: 'clear_favorites',
+          title: 'Favorileri Temizle',
+          icon: 'heart-dislike-outline',
+          type: 'action',
+          danger: true,
+          onPress: handleClearFavorites,
         },
       ],
     },
     {
-      title: 'GÜVENLİK & DİĞER',
-      emoji: '🛡️',
+      title: 'UYGULAMA',
+      emoji: '📱',
       data: [
-        {
-          id: 'parental_control',
-          title: 'Ebeveyn Kontrolü (+18)',
-          icon: 'lock-closed-outline',
-          type: 'switch',
-          value: parentalControl,
-          onValueChange: saveParentalControl,
-        },
         {
           id: 'version',
           title: 'Sürüm',
           icon: 'information-circle-outline',
           type: 'info',
-          value: '1.0.0',
-        },
-        {
-          id: 'logout',
-          title: 'Çıkış Yap',
-          icon: 'log-out-outline',
-          type: 'action',
-          danger: true,
-          onPress: handleLogout,
+          value: appVersion,
         },
       ],
     },
@@ -596,17 +615,16 @@ const SettingsScreen: React.FC = () => {
           )}
 
           {item.type === 'action' && item.badge && (
-            <View style={styles.actionBadge}>
-              <Text style={styles.actionBadgeText}>{item.badge}</Text>
+            <View style={[styles.badge, { backgroundColor: '#3b82f6' }]}>
+              <Text style={styles.badgeText}>{item.badge}</Text>
             </View>
           )}
 
-          {(item.type === 'navigation' || item.type === 'selector' || (item.type === 'action' && !item.danger)) && (
+          {(item.type === 'navigation' || item.type === 'selector' || item.type === 'action') && (
             <Ionicons
               name="chevron-forward"
               size={20}
-              color="#64748b"
-              style={styles.chevron}
+              color={item.danger ? '#ef4444' : '#64748b'}
             />
           )}
         </View>
@@ -717,6 +735,64 @@ const SettingsScreen: React.FC = () => {
         </TouchableOpacity>
       </Modal>
 
+      {/* Buffer Mode Modal */}
+      <Modal
+        visible={bufferModeModal}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setBufferModeModal(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setBufferModeModal(false)}
+        >
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Tampon Bellek (Buffer)</Text>
+              <Text style={styles.modalSubtitle}>
+                İnternet hızınıza göre video yükleme ayarını seçin
+              </Text>
+            </View>
+
+            <View style={styles.modalOptions}>
+              {[
+                { value: 'low', label: '⚡ Düşük', subtitle: 'Hızlı internetler için (Daha az gecikme)' },
+                { value: 'normal', label: '👍 Normal', subtitle: 'Önerilen ayar' },
+                { value: 'high', label: '🐢 Yüksek', subtitle: 'Yavaş internetler için (Daha az donma)' },
+              ].map((option) => (
+                <TouchableOpacity
+                  key={option.value}
+                  style={[
+                    styles.modalOption,
+                    bufferMode === option.value && styles.modalOptionActive,
+                  ]}
+                  onPress={() => {
+                    saveBufferMode(option.value as 'low' | 'normal' | 'high');
+                    setBufferModeModal(false);
+                  }}
+                >
+                  <View style={styles.modalOptionContent}>
+                    <Text
+                      style={[
+                        styles.modalOptionLabel,
+                        bufferMode === option.value && styles.modalOptionLabelActive,
+                      ]}
+                    >
+                      {option.label}
+                    </Text>
+                    <Text style={styles.modalOptionSubtitle}>{option.subtitle}</Text>
+                  </View>
+                  {bufferMode === option.value && (
+                    <Ionicons name="checkmark-circle" size={24} color="#3b82f6" />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
       {/* Server Edit Modal */}
       <Modal
         visible={serverModal}
@@ -787,6 +863,17 @@ const SettingsScreen: React.FC = () => {
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
+
+      {/* Sync Loading Overlay */}
+      {syncing && (
+        <View style={styles.loadingOverlay}>
+          <View style={styles.loadingContent}>
+            <ActivityIndicator size="large" color="#3b82f6" />
+            <Text style={styles.loadingText}>İçerikler Güncelleniyor...</Text>
+            <Text style={styles.loadingSubText}>Lütfen bekleyin</Text>
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 };
@@ -795,6 +882,23 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0f172a',
+  },
+  center: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 12,
+    color: '#94a3b8',
+    fontSize: 16,
+    fontFamily: fonts.medium,
+  },
+  loadingSubText: {
+    marginTop: 4,
+    color: '#64748b',
+    fontSize: 14,
+    fontFamily: fonts.regular,
   },
   header: {
     flexDirection: 'row',
@@ -879,48 +983,21 @@ const styles = StyleSheet.create({
   },
   badge: {
     paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingVertical: 2,
     borderRadius: 12,
   },
   badgeText: {
     fontSize: 12,
-    fontFamily: fonts.semibold,
+    fontFamily: fonts.bold,
     color: '#fff',
-  },
-  actionBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 6,
-    backgroundColor: 'rgba(59, 130, 246, 0.15)',
-  },
-  actionBadgeText: {
-    fontSize: 12,
-    fontFamily: fonts.semibold,
-    color: '#3b82f6',
-  },
-  chevron: {
-    marginLeft: 4,
   },
   separator: {
     height: 1,
     backgroundColor: 'rgba(148, 163, 184, 0.1)',
-    marginLeft: 68,
-    marginRight: 20,
+    marginHorizontal: 16,
   },
   sectionSeparator: {
-    height: 1,
-    backgroundColor: 'transparent',
-  },
-  center: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    fontFamily: fonts.medium,
-    color: '#94a3b8',
+    height: 0,
   },
   modalOverlay: {
     flex: 1,
@@ -942,9 +1019,10 @@ const styles = StyleSheet.create({
     padding: 20,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(148, 163, 184, 0.1)',
+    backgroundColor: '#0f172a',
   },
   modalTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontFamily: fonts.bold,
     color: '#fff',
     marginBottom: 4,
@@ -955,7 +1033,7 @@ const styles = StyleSheet.create({
     color: '#94a3b8',
   },
   modalOptions: {
-    padding: 12,
+    padding: 8,
   },
   modalOption: {
     flexDirection: 'row',
@@ -963,26 +1041,22 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     padding: 16,
     borderRadius: 12,
-    backgroundColor: '#0f172a',
-    marginBottom: 8,
-    borderWidth: 2,
-    borderColor: 'transparent',
   },
   modalOptionActive: {
     backgroundColor: 'rgba(59, 130, 246, 0.1)',
-    borderColor: '#3b82f6',
   },
   modalOptionContent: {
     flex: 1,
   },
   modalOptionLabel: {
     fontSize: 16,
-    fontFamily: fonts.semibold,
+    fontFamily: fonts.medium,
     color: '#fff',
     marginBottom: 2,
   },
   modalOptionLabelActive: {
     color: '#3b82f6',
+    fontFamily: fonts.bold,
   },
   modalOptionSubtitle: {
     fontSize: 13,
@@ -992,8 +1066,8 @@ const styles = StyleSheet.create({
   serverModalContent: {
     backgroundColor: '#1e293b',
     borderRadius: 16,
-    width: 340,
-    maxWidth: '90%',
+    width: '90%',
+    maxWidth: 400,
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: 'rgba(148, 163, 184, 0.2)',
@@ -1003,60 +1077,76 @@ const styles = StyleSheet.create({
   },
   inputLabel: {
     fontSize: 14,
-    fontFamily: fonts.semibold,
+    fontFamily: fonts.medium,
     color: '#94a3b8',
     marginBottom: 8,
   },
   serverInput: {
     backgroundColor: '#0f172a',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 16,
-    fontFamily: fonts.regular,
-    color: '#fff',
     borderWidth: 1,
     borderColor: 'rgba(148, 163, 184, 0.2)',
+    borderRadius: 12,
+    padding: 12,
+    color: '#fff',
+    fontSize: 16,
+    fontFamily: fonts.regular,
   },
   inputHint: {
     fontSize: 12,
     fontFamily: fonts.regular,
     color: '#64748b',
     marginTop: 8,
-    fontStyle: 'italic',
   },
   serverModalFooter: {
     flexDirection: 'row',
-    padding: 16,
+    padding: 20,
+    paddingTop: 0,
     gap: 12,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(148, 163, 184, 0.1)',
   },
   serverModalButton: {
     flex: 1,
-    paddingVertical: 14,
+    paddingVertical: 12,
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
   serverModalButtonCancel: {
-    backgroundColor: '#374151',
+    backgroundColor: 'rgba(148, 163, 184, 0.1)',
   },
   serverModalButtonSave: {
     backgroundColor: '#3b82f6',
   },
   serverModalButtonDisabled: {
-    opacity: 0.5,
+    opacity: 0.7,
   },
   serverModalButtonTextCancel: {
+    color: '#fff',
+    fontFamily: fonts.medium,
     fontSize: 16,
-    fontFamily: fonts.semibold,
-    color: '#d1d5db',
   },
   serverModalButtonTextSave: {
+    color: '#fff',
+    fontFamily: fonts.bold,
     fontSize: 16,
-    fontFamily: fonts.semibold,
-    color: '#ffffff',
+  },
+  loadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 999,
+  },
+  loadingContent: {
+    backgroundColor: '#1e293b',
+    padding: 24,
+    borderRadius: 16,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(148, 163, 184, 0.2)',
   },
 });
 

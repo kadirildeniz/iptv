@@ -15,4 +15,10 @@ export { ENDPOINTS } from './api/endpoints';
 // Database
 export { default as database } from './database';
 
+// TMDB
+export { default as tmdbService } from './TmdbService';
+
+// AI
+export { default as aiService } from './AiService';
+
 

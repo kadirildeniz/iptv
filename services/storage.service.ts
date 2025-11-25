@@ -112,13 +112,13 @@ class StorageService {
         iptvName?: string;
         protocol?: 'http' | 'https';
       }>(KEYS.CREDENTIALS);
-      
+
       if (credentials) {
         console.log('✅ Credentials loaded from storage');
       } else {
         console.log('ℹ️ No credentials found in storage');
       }
-      
+
       return credentials;
     } catch (error) {
       console.error('❌ Get credentials error:', error);
@@ -176,6 +176,48 @@ class StorageService {
       console.error('❌ Reset first login error:', error);
       throw error;
     }
+  }
+  /**
+   * Ses ayarlarını getir
+   */
+  async getAudioSettings(): Promise<{ boostLevel: number; dialogueEnhance: boolean }> {
+    try {
+      const boostLevel = await this.getItem<string>('audio_boost_level');
+      const dialogueEnhance = await this.getItem<string>('dialog_enhancement');
+
+      return {
+        boostLevel: boostLevel ? parseFloat(boostLevel) : 1.0,
+        dialogueEnhance: dialogueEnhance === 'true',
+      };
+    } catch (error) {
+      console.error('Get audio settings error:', error);
+      return { boostLevel: 1.0, dialogueEnhance: false };
+    }
+  }
+
+  /**
+   * Player ayarlarını getir
+   */
+  async getPlayerSettings(): Promise<{ hwDecoder: boolean; bufferMode: 'low' | 'normal' | 'high' }> {
+    try {
+      const hwDecoder = await this.getItem<string>('hw_decoder');
+      const bufferMode = await this.getItem<string>('buffer_mode');
+
+      return {
+        hwDecoder: hwDecoder !== 'false', // Default true
+        bufferMode: (bufferMode as 'low' | 'normal' | 'high') || 'normal',
+      };
+    } catch (error) {
+      console.error('Get player settings error:', error);
+      return { hwDecoder: true, bufferMode: 'normal' };
+    }
+  }
+
+  /**
+   * Buffer modunu kaydet
+   */
+  async saveBufferMode(mode: 'low' | 'normal' | 'high'): Promise<void> {
+    await this.setItem('buffer_mode', mode);
   }
 }
 

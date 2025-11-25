@@ -91,6 +91,14 @@ const PlayerScreen: React.FC = () => {
   const [audioBoostLevel, setAudioBoostLevel] = useState(1.0);
   const [volume, setVolume] = useState(1.0);
   const [audioSessionId, setAudioSessionId] = useState<number | null>(null);
+  const [hwDecoder, setHwDecoder] = useState(true);
+  const [bufferConfig, setBufferConfig] = useState<any>({
+    minBufferMs: 15000,
+    maxBufferMs: 50000,
+    bufferForPlaybackMs: 2500,
+    bufferForPlaybackAfterRebufferMs: 5000,
+  });
+  const [dialogEnhancement, setDialogEnhancement] = useState(false);
 
   // Tracks
   const [audioTracks, setAudioTracks] = useState<Track[]>([]);
@@ -137,12 +145,49 @@ const PlayerScreen: React.FC = () => {
       const savedResizeMode = await storageService.getItem<string>('default_resize_mode');
       if (savedResizeMode) setResizeMode(savedResizeMode as ResizeMode);
 
-      const savedAudioBoost = await storageService.getItem<string>('audio_boost_level');
-      if (savedAudioBoost) {
-        const boostLevel = parseFloat(savedAudioBoost);
-        setAudioBoostLevel(boostLevel);
-        setVolume(Math.min(boostLevel, 1.0));
+      // Ses Ayarlarını Yükle
+      const audioSettings = await storageService.getAudioSettings();
+      setAudioBoostLevel(audioSettings.boostLevel);
+      setDialogEnhancement(audioSettings.dialogueEnhance);
+
+      // Ses seviyesini ayarla (Boost varsa artır)
+      // Android'de volume 1.0 üzeri çalışmayabilir ama yine de set ediyoruz
+      // Eğer boostLevel > 1.0 ise, volume'u da ona eşitliyoruz
+      setVolume(audioSettings.boostLevel);
+
+      if (audioSettings.boostLevel > 1.0 && Platform.OS === 'android') {
+        // Kullanıcıya ilk seferde bilgi verilebilir (Opsiyonel)
+        // ToastAndroid.show('Ses güçlendirme aktif', ToastAndroid.SHORT);
       }
+
+      // Player Ayarlarını Yükle
+      const playerSettings = await storageService.getPlayerSettings();
+      setHwDecoder(playerSettings.hwDecoder);
+
+      // Buffer Config Ayarla
+      let newBufferConfig = {
+        minBufferMs: 15000,
+        maxBufferMs: 50000,
+        bufferForPlaybackMs: 2500,
+        bufferForPlaybackAfterRebufferMs: 5000,
+      };
+
+      if (playerSettings.bufferMode === 'low') {
+        newBufferConfig = {
+          minBufferMs: 5000,
+          maxBufferMs: 15000,
+          bufferForPlaybackMs: 1000,
+          bufferForPlaybackAfterRebufferMs: 2500,
+        };
+      } else if (playerSettings.bufferMode === 'high') {
+        newBufferConfig = {
+          minBufferMs: 30000,
+          maxBufferMs: 60000,
+          bufferForPlaybackMs: 5000,
+          bufferForPlaybackAfterRebufferMs: 10000,
+        };
+      }
+      setBufferConfig(newBufferConfig);
 
       await checkResumePoint();
     } catch (error) {
@@ -312,12 +357,29 @@ const PlayerScreen: React.FC = () => {
     setError(null);
 
     if (data.audioTracks?.length > 0) {
-      setAudioTracks(data.audioTracks.map((track: any, index: number) => ({
+      const tracks = data.audioTracks.map((track: any, index: number) => ({
         index,
         title: track.title || `Audio ${index + 1}`,
         language: track.language || 'unknown',
         selected: index === 0,
-      })));
+      }));
+      setAudioTracks(tracks);
+
+      // Diyalog İyileştirme Mantığı
+      if (dialogEnhancement && tracks.length > 1) {
+        // Basit mantık: Genellikle son kanallar veya özel isimlendirilmiş kanallar (örn: "Dialog", "Stereo") daha temiz olabilir.
+        // Veya surround (AC3/5.1) yerine Stereo (AAC) tercih edilebilir.
+        // Şimdilik deneysel olarak: Eğer "AAC" veya "Stereo" içeren bir track varsa onu seçelim.
+        const betterTrackIndex = tracks.findIndex(t =>
+          (t.title && (t.title.includes('AAC') || t.title.includes('Stereo'))) ||
+          (t.language && t.language.includes('eng')) // Veya orijinal dili tercih et
+        );
+
+        if (betterTrackIndex !== -1 && betterTrackIndex !== 0) {
+          console.log('🗣️ Diyalog iyileştirme: Track değiştirildi ->', tracks[betterTrackIndex].title);
+          setSelectedAudioTrack(betterTrackIndex);
+        }
+      }
     }
 
     if (data.textTracks?.length > 0) {
@@ -416,12 +478,8 @@ const PlayerScreen: React.FC = () => {
               rate={playbackRate}
               playInBackground={true}
               playWhenInactive={false}
-              bufferConfig={{
-                minBufferMs: 15000,
-                maxBufferMs: 50000,
-                bufferForPlaybackMs: 2500,
-                bufferForPlaybackAfterRebufferMs: 5000,
-              }}
+              useTextureView={!hwDecoder} // HW Decoder ayarı (false = SurfaceView = Daha iyi performans)
+              bufferConfig={bufferConfig} // Dinamik buffer ayarı
               onLoad={handleLoad}
               onProgress={handleProgress}
               onBuffer={handleBuffer}
@@ -431,6 +489,14 @@ const PlayerScreen: React.FC = () => {
                 setAudioSessionId((prevId) => prevId !== data.audioSessionId ? data.audioSessionId : prevId);
               }}
               audioOutput="speaker"
+              selectedAudioTrack={{
+                type: "index",
+                value: selectedAudioTrack
+              }}
+              selectedTextTrack={{
+                type: selectedTextTrack === -1 ? "disabled" : "index",
+                value: selectedTextTrack === -1 ? undefined : selectedTextTrack
+              }}
             />
 
             {/* Gesture Feedback */}

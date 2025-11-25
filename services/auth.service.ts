@@ -3,6 +3,30 @@ import { ENDPOINTS } from './api/endpoints';
 import { AccountInfo } from './api/types';
 
 class AuthService {
+  private listeners: ((isAuthenticated: boolean) => void)[] = [];
+
+  /**
+   * Auth durumu değiştiğinde dinleyicileri haberdar et
+   */
+  private notifyListeners() {
+    const isAuth = this.isAuthenticated();
+    this.listeners.forEach(listener => listener(isAuth));
+  }
+
+  /**
+   * Auth durumu değişikliklerini dinle
+   */
+  subscribe(listener: (isAuthenticated: boolean) => void) {
+    this.listeners.push(listener);
+    // İlk durumu hemen bildir
+    listener(this.isAuthenticated());
+
+    // Unsubscribe fonksiyonu döndür
+    return () => {
+      this.listeners = this.listeners.filter(l => l !== listener);
+    };
+  }
+
   /**
    * Kullanıcı girişi - Xtream Codes credentials kaydet
    */
@@ -32,6 +56,7 @@ class AuthService {
       if (accountInfo.user_info.auth === 0) {
         console.error('❌ Authentication failed: auth = 0');
         await apiClient.clearCredentials();
+        this.notifyListeners(); // Notify logout
         throw new Error('Authentication failed: Invalid credentials');
       }
 
@@ -39,13 +64,16 @@ class AuthService {
       if (accountInfo.user_info.status !== 'Active') {
         console.error('❌ Account not active:', accountInfo.user_info.status);
         await apiClient.clearCredentials();
+        this.notifyListeners(); // Notify logout
         throw new Error(`Account is not active. Status: ${accountInfo.user_info.status}`);
       }
 
       console.log('✅ Login successful');
+      this.notifyListeners(); // Notify login
       return accountInfo;
     } catch (error) {
       console.error('❌ Login error:', error);
+      this.notifyListeners(); // Ensure listeners are updated on error
       throw error;
     }
   }
@@ -72,6 +100,7 @@ class AuthService {
   async logout(): Promise<void> {
     try {
       await apiClient.clearCredentials();
+      this.notifyListeners();
     } catch (error) {
       console.error('Logout error:', error);
       throw error;
@@ -83,7 +112,9 @@ class AuthService {
    */
   async loadCredentials(): Promise<XtreamCredentials | null> {
     try {
-      return await apiClient.loadCredentials();
+      const creds = await apiClient.loadCredentials();
+      this.notifyListeners();
+      return creds;
     } catch (error) {
       console.error('Load credentials error:', error);
       return null;

@@ -11,6 +11,7 @@ import {
   Outfit_600SemiBold,
   Outfit_700Bold,
 } from '@expo-google-fonts/outfit';
+import AiAssistantModal from '@/components/AiAssistantModal';
 
 SplashScreen.preventAutoHideAsync().catch(() => { });
 
@@ -65,6 +66,7 @@ export default function RootLayout() {
           headerShown: false,
         }}
       />
+      <AiAssistantModal />
       <ExpoStatusBar style="dark" />
     </>
   );
