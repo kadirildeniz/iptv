@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
 
 const KEYS = {
   SETTINGS: 'settings',
@@ -73,7 +74,7 @@ class StorageService {
   }
 
   /**
-   * Credentials kaydet
+   * Credentials kaydet (Güvenli depolamaya)
    */
   async saveCredentials(credentials: {
     host: string;
@@ -84,8 +85,9 @@ class StorageService {
     protocol?: 'http' | 'https';
   }): Promise<void> {
     try {
-      await this.setItem(KEYS.CREDENTIALS, credentials);
-      console.log('✅ Credentials saved to storage');
+      // SecureStore ile güvenli depolama
+      await SecureStore.setItemAsync(KEYS.CREDENTIALS, JSON.stringify(credentials));
+      console.log('✅ Credentials saved to secure storage');
     } catch (error) {
       console.error('❌ Save credentials error:', error);
       throw error;
@@ -93,7 +95,7 @@ class StorageService {
   }
 
   /**
-   * Credentials getir
+   * Credentials getir (Güvenli depolamadan)
    */
   async getCredentials(): Promise<{
     host: string;
@@ -104,22 +106,17 @@ class StorageService {
     protocol?: 'http' | 'https';
   } | null> {
     try {
-      const credentials = await this.getItem<{
-        host: string;
-        port: string;
-        username: string;
-        password: string;
-        iptvName?: string;
-        protocol?: 'http' | 'https';
-      }>(KEYS.CREDENTIALS);
+      // SecureStore'dan oku
+      const stored = await SecureStore.getItemAsync(KEYS.CREDENTIALS);
 
-      if (credentials) {
-        console.log('✅ Credentials loaded from storage');
+      if (stored) {
+        const credentials = JSON.parse(stored);
+        console.log('✅ Credentials loaded from secure storage');
+        return credentials;
       } else {
-        console.log('ℹ️ No credentials found in storage');
+        console.log('ℹ️ No credentials found in secure storage');
+        return null;
       }
-
-      return credentials;
     } catch (error) {
       console.error('❌ Get credentials error:', error);
       return null;
@@ -127,12 +124,12 @@ class StorageService {
   }
 
   /**
-   * Credentials temizle
+   * Credentials temizle (Güvenli depolamadan)
    */
   async clearCredentials(): Promise<void> {
     try {
-      await this.removeItem(KEYS.CREDENTIALS);
-      console.log('✅ Credentials cleared from storage');
+      await SecureStore.deleteItemAsync(KEYS.CREDENTIALS);
+      console.log('✅ Credentials cleared from secure storage');
     } catch (error) {
       console.error('❌ Clear credentials error:', error);
       throw error;

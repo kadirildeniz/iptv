@@ -20,7 +20,7 @@ class ApiClient {
   constructor() {
     // Default axios instance
     this.axiosInstance = axios.create({
-      timeout: 30000,
+      timeout: 15000, // 15 saniye timeout (mobil için uygun)
       headers: {
         'Content-Type': 'application/json',
       },
@@ -34,7 +34,7 @@ class ApiClient {
       (error: any) => {
         if (error.response) {
           console.error('API Error:', error.response.data);
-          
+
           if (error.response.status === 401 || error.response.status === 403) {
             // Credentials geçersiz
             console.error('Authentication failed');
@@ -93,7 +93,7 @@ class ApiClient {
     const protocol = this.credentials.protocol || 'http';
     const port = this.credentials.port || '';
     const portPart = port ? `:${port}` : '';
-    
+
     return `${protocol}://${this.credentials.host}${portPart}`;
   }
 
@@ -119,11 +119,11 @@ class ApiClient {
     const url = `${this.getBaseUrl()}${endpoint}`;
     console.log('🌐 API GET Request:', url);
     console.log('📋 API Params:', this.addAuthParams(params));
-    
+
     const response = await this.axiosInstance.get<T>(url, {
       params: this.addAuthParams(params),
     });
-    
+
     console.log('✅ API Response:', response.data);
     return response.data;
   }

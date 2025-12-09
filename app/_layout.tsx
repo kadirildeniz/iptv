@@ -12,12 +12,11 @@ import {
   Outfit_600SemiBold,
   Outfit_700Bold,
 } from '@expo-google-fonts/outfit';
+import ErrorBoundary from '@/components/ErrorBoundary';
 
 SplashScreen.preventAutoHideAsync().catch(() => { });
 
 export default function RootLayout() {
-  console.log('🔍 RootLayout render ediliyor');
-
   const [fontsLoaded, fontError] = useFonts({
     'Outfit-Regular': Outfit_400Regular,
     'Outfit-Medium': Outfit_500Medium,
@@ -36,19 +35,16 @@ export default function RootLayout() {
             // Activity'nin hazır olması için biraz bekle
             await new Promise(resolve => setTimeout(resolve, 1000));
             await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
-            console.log('✅ Orientation locked to landscape');
 
             // Android'de navigation bar'ı gizle (immersive mode)
             if (Platform.OS === 'android') {
-              // StatusBar.setHidden(true); // Expo StatusBar kullanıyoruz
               await NavigationBar.setPositionAsync('absolute');
-              await NavigationBar.setBackgroundColorAsync('#00000000'); // Transparent
+              await NavigationBar.setBackgroundColorAsync('#00000000');
               await NavigationBar.setVisibilityAsync('hidden');
               await NavigationBar.setBehaviorAsync('overlay-swipe');
-              console.log('✅ Navigation bar hidden (immersive)');
 
-              // AppState değişimlerini dinle ve tekrar gizle (Kullanıcı çıkıp girerse)
-              const subscription = AppState.addEventListener('change', nextAppState => {
+              // AppState değişimlerini dinle ve tekrar gizle
+              AppState.addEventListener('change', nextAppState => {
                 if (nextAppState === 'active') {
                   NavigationBar.setVisibilityAsync('hidden');
                   ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
@@ -72,14 +68,14 @@ export default function RootLayout() {
   }
 
   return (
-    <>
+    <ErrorBoundary>
       <Stack
         screenOptions={{
           headerShown: false,
         }}
       />
       <ExpoStatusBar style="dark" hidden={true} />
-    </>
+    </ErrorBoundary>
   );
 }
 

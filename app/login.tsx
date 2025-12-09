@@ -230,7 +230,7 @@ export default function LoginScreen() {
                   {loading ? (
                     <ActivityIndicator color="#fff" />
                   ) : (
-                    <Text style={styles.loginButtonText}>Giriş Yap Test 123</Text>
+                    <Text style={styles.loginButtonText}>Giriş Yap</Text>
                   )}
                 </Pressable>
               </View>
