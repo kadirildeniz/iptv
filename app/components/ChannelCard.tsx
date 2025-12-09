@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Image, GestureResponderEvent } from 'react-native';
+import { View, Text, Pressable, StyleSheet, Image, GestureResponderEvent } from 'react-native';
 import { fonts } from '@/theme/fonts';
+import { TV_FOCUS_STYLE, TV_BASE_BORDER } from '@/constants/tvStyles';
 
 interface ChannelCardProps {
   id: string;
@@ -12,6 +13,9 @@ interface ChannelCardProps {
   onToggleFavorite: (id: string) => void;
   onChannelSelect?: (channel: { id: string; name: string; streamUrl?: string }) => void;
   variant?: 'grid' | 'list';
+  height?: number;
+  width?: number;
+  style?: any;
 }
 
 const ChannelCard: React.FC<ChannelCardProps> = ({
@@ -24,8 +28,13 @@ const ChannelCard: React.FC<ChannelCardProps> = ({
   onToggleFavorite,
   onChannelSelect,
   variant = 'grid',
+  height,
+  width,
+  style,
 }) => {
   const [imageError, setImageError] = useState(false);
+  const [cardFocused, setCardFocused] = useState(false);
+  const [favoriteFocused, setFavoriteFocused] = useState(false);
   const isGrid = variant === 'grid';
 
   const handleCardPress = () => {
@@ -48,8 +57,20 @@ const ChannelCard: React.FC<ChannelCardProps> = ({
 
   if (isGrid) {
     return (
-      <TouchableOpacity style={styles.gridCard} onPress={handleCardPress} activeOpacity={0.9}>
-        <View style={styles.gridImageWrapper}>
+      <Pressable
+        isTVSelectable={true}
+        focusable={true}
+        android_tv_focusable={true}
+        onFocus={() => setCardFocused(true)}
+        onBlur={() => setCardFocused(false)}
+        style={[
+          styles.gridCard,
+          style,
+          cardFocused && styles.cardFocused
+        ]}
+        onPress={handleCardPress}
+      >
+        <View style={[styles.gridImageWrapper, height ? { height, aspectRatio: undefined } : {}, width ? { width } : {}]}>
           {showImage ? (
             <Image
               source={{ uri: logo }}
@@ -61,26 +82,42 @@ const ChannelCard: React.FC<ChannelCardProps> = ({
             <Text style={styles.gridFallback}>{name.substring(0, 3).toUpperCase()}</Text>
           )}
 
-          <TouchableOpacity
-            style={[styles.gridFavoriteButton, isFavorite && styles.gridFavoriteButtonActive]}
+          <Pressable
+            isTVSelectable={true}
+            focusable={true}
+            android_tv_focusable={true}
+            onFocus={() => setFavoriteFocused(true)}
+            onBlur={() => setFavoriteFocused(false)}
+            style={[
+              styles.gridFavoriteButton,
+              isFavorite && styles.gridFavoriteButtonActive,
+              favoriteFocused && styles.favoriteFocused
+            ]}
             onPress={handleFavoritePress}
-            activeOpacity={0.7}
           >
             <Text style={[styles.gridFavoriteIcon, isFavorite && styles.gridFavoriteIconActive]}>
               {isFavorite ? '★' : '☆'}
             </Text>
-          </TouchableOpacity>
+          </Pressable>
         </View>
 
         <Text style={styles.gridName} numberOfLines={1}>
           {name}
         </Text>
-      </TouchableOpacity>
+      </Pressable>
     );
   }
 
+
   return (
-    <TouchableOpacity style={styles.listCard} onPress={handleCardPress} activeOpacity={0.8}>
+    <Pressable
+      focusable={true}
+      style={({ pressed, focused }) => [
+        styles.listCard,
+        focused && TV_FOCUS_STYLE
+      ]}
+      onPress={handleCardPress}
+    >
       <View style={styles.listLogoWrapper}>
         {showImage ? (
           <Image
@@ -99,15 +136,22 @@ const ChannelCard: React.FC<ChannelCardProps> = ({
           <Text style={styles.listTitle} numberOfLines={1}>
             {name}
           </Text>
-          <TouchableOpacity
-            style={styles.listFavoriteButton}
+          <Pressable
+            focusable={true}
+            style={({ pressed, focused }) => [
+              styles.listFavoriteButton,
+              focused && {
+                borderColor: '#00E5FF',
+                borderWidth: 2,
+                transform: [{ scale: 1.1 }],
+              }
+            ]}
             onPress={handleFavoritePress}
-            activeOpacity={0.7}
           >
             <Text style={[styles.listStar, isFavorite && styles.listStarActive]}>
               {isFavorite ? '★' : '☆'}
             </Text>
-          </TouchableOpacity>
+          </Pressable>
         </View>
 
         <Text style={styles.listSubtitle}>{subscribers}</Text>
@@ -120,7 +164,7 @@ const ChannelCard: React.FC<ChannelCardProps> = ({
           ))}
         </View>
       </View>
-    </TouchableOpacity>
+    </Pressable>
   );
 };
 
@@ -138,14 +182,24 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     padding: 12,
     alignItems: 'center',
-    borderWidth: 1,
+    borderWidth: 3,
     borderColor: 'rgba(30, 144, 255, 0.18)',
     gap: 10,
     ...sharedShadow,
   },
+  cardFocused: {
+    borderColor: '#00E5FF',
+    borderWidth: 3,
+    transform: [{ scale: 1.05 }],
+  },
+  favoriteFocused: {
+    borderColor: '#00E5FF',
+    borderWidth: 2,
+    transform: [{ scale: 1.15 }],
+  },
   gridImageWrapper: {
     width: '100%',
-    aspectRatio: 1.15,
+    aspectRatio: 1.0,
     borderRadius: 14,
     backgroundColor: 'rgba(15, 46, 91, 0.75)',
     borderWidth: 1,
@@ -158,6 +212,7 @@ const styles = StyleSheet.create({
   gridImage: {
     width: '100%',
     height: '100%',
+    resizeMode: 'contain',
   },
   gridFallback: {
     color: '#ffffff',
@@ -207,7 +262,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(13, 27, 42, 0.6)',
     borderRadius: 20,
     padding: 20,
-    borderWidth: 1,
+    borderWidth: 3,
     borderColor: 'rgba(30, 144, 255, 0.2)',
     marginBottom: 16,
     ...sharedShadow,

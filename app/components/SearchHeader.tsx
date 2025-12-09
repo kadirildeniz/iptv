@@ -3,7 +3,7 @@ import {
   View,
   Text,
   TextInput,
-  TouchableOpacity,
+  Pressable,
   StyleSheet,
   LayoutAnimation,
   Platform,
@@ -11,6 +11,7 @@ import {
   Keyboard,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { TV_BUTTON_FOCUS_STYLE } from '@/constants/tvStyles';
 import { fonts } from '@/theme/fonts';
 
 // Android için LayoutAnimation'ı etkinleştir
@@ -37,6 +38,9 @@ const SearchHeader: React.FC<SearchHeaderProps> = ({
 }) => {
   const [isSearchActive, setIsSearchActive] = useState(false);
   const [searchText, setSearchText] = useState('');
+  const [searchButtonFocused, setSearchButtonFocused] = useState(false);
+  const [cancelButtonFocused, setCancelButtonFocused] = useState(false);
+  const [clearButtonFocused, setClearButtonFocused] = useState(false);
   const inputRef = useRef<TextInput>(null);
   const debounceTimeout = useRef<NodeJS.Timeout | null>(null);
 
@@ -85,9 +89,20 @@ const SearchHeader: React.FC<SearchHeaderProps> = ({
               <Text style={styles.itemCount}> ({itemCount} {itemLabel})</Text>
             )}
           </View>
-          <TouchableOpacity onPress={openSearch} style={styles.iconButton}>
+          <Pressable
+            isTVSelectable={true}
+            focusable={true}
+            android_tv_focusable={true}
+            onFocus={() => setSearchButtonFocused(true)}
+            onBlur={() => setSearchButtonFocused(false)}
+            onPress={openSearch}
+            style={[
+              styles.iconButton,
+              searchButtonFocused && styles.buttonFocused
+            ]}
+          >
             <Ionicons name="search" size={24} color="#fff" />
-          </TouchableOpacity>
+          </Pressable>
         </View>
       ) : (
         <View style={styles.searchContent}>
@@ -104,17 +119,36 @@ const SearchHeader: React.FC<SearchHeaderProps> = ({
               returnKeyType="search"
             />
             {searchText.length > 0 && (
-              <TouchableOpacity
+              <Pressable
+                isTVSelectable={true}
+                focusable={true}
+                android_tv_focusable={true}
+                onFocus={() => setClearButtonFocused(true)}
+                onBlur={() => setClearButtonFocused(false)}
                 onPress={() => handleTextChange('')}
-                style={styles.clearButton}
+                style={[
+                  styles.clearButton,
+                  clearButtonFocused && styles.clearButtonFocused
+                ]}
               >
                 <Ionicons name="close-circle" size={18} color="#94a3b8" />
-              </TouchableOpacity>
+              </Pressable>
             )}
           </View>
-          <TouchableOpacity onPress={closeSearch} style={styles.cancelButton}>
+          <Pressable
+            isTVSelectable={true}
+            focusable={true}
+            android_tv_focusable={true}
+            onFocus={() => setCancelButtonFocused(true)}
+            onBlur={() => setCancelButtonFocused(false)}
+            onPress={closeSearch}
+            style={[
+              styles.cancelButton,
+              cancelButtonFocused && styles.cancelButtonFocused
+            ]}
+          >
             <Text style={styles.cancelText}>Vazgeç</Text>
-          </TouchableOpacity>
+          </Pressable>
         </View>
       )}
     </View>
@@ -158,6 +192,8 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
     marginLeft: 8,
+    borderWidth: 2,
+    borderColor: 'transparent',
   },
   searchContent: {
     flexDirection: 'row',
@@ -189,10 +225,29 @@ const styles = StyleSheet.create({
   },
   clearButton: {
     padding: 4,
+    borderWidth: 2,
+    borderColor: 'transparent',
+    borderRadius: 12,
+  },
+  clearButtonFocused: {
+    borderColor: '#00E5FF',
+    transform: [{ scale: 1.1 }],
   },
   cancelButton: {
     paddingVertical: 8,
     paddingHorizontal: 4,
+    borderWidth: 2,
+    borderColor: 'transparent',
+    borderRadius: 8,
+  },
+  cancelButtonFocused: {
+    borderColor: '#00E5FF',
+    transform: [{ scale: 1.05 }],
+  },
+  buttonFocused: {
+    borderColor: '#00E5FF',
+    borderWidth: 2,
+    transform: [{ scale: 1.05 }],
   },
   cancelText: {
     color: '#fff',

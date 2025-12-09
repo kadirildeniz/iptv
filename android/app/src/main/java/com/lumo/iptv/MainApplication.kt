@@ -1,5 +1,6 @@
-package com.anonymous.iptv
+package com.lumo.iptv
 
+import com.lumo.iptv.AudioBoosterPackage
 import android.app.Application
 import android.content.res.Configuration
 
@@ -23,9 +24,9 @@ class MainApplication : Application(), ReactApplication {
       object : DefaultReactNativeHost(this) {
         override fun getPackages(): List<ReactPackage> =
             PackageList(this).packages.apply {
+            add(AudioBoosterPackage())
               // Packages that cannot be autolinked yet can be added manually here, for example:
               // add(MyReactNativePackage())
-              add(AudioBoosterPackage())
             }
 
           override fun getJSMainModuleName(): String = ".expo/.virtual-metro-entry"

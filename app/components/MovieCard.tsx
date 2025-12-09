@@ -1,7 +1,8 @@
-import React, { memo } from 'react';
-import { View, Text, Image, StyleSheet, TouchableOpacity } from 'react-native';
+import React, { memo, useState } from 'react';
+import { View, Text, Image, StyleSheet, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts } from '@/theme/fonts';
+import { TV_FOCUS_STYLE, TV_BASE_BORDER } from '@/constants/tvStyles';
 
 interface MovieCardProps {
   id: string;
@@ -14,6 +15,9 @@ interface MovieCardProps {
   isFavorite?: boolean;
   onPress?: (id: string) => void;
   onFavoritePress?: (id: string) => void;
+  height?: number;
+  width?: number;
+  style?: any;
 }
 
 const MovieCard: React.FC<MovieCardProps> = ({
@@ -27,6 +31,9 @@ const MovieCard: React.FC<MovieCardProps> = ({
   isFavorite = false,
   onPress,
   onFavoritePress,
+  height = 200,
+  width,
+  style,
 }) => {
   const handlePress = () => {
     if (onPress) {
@@ -36,10 +43,12 @@ const MovieCard: React.FC<MovieCardProps> = ({
 
   const handleFavoritePress = (e: any) => {
     e.stopPropagation();
-    if (onFavoritePress) {
-      onFavoritePress(id);
-    }
+    onFavoritePress?.(id);
   };
+
+  // Manuel focus state
+  const [isCardFocused, setIsCardFocused] = useState(false);
+  const [isFavFocused, setIsFavFocused] = useState(false);
 
   // Rating formatla
   const formatRating = () => {
@@ -63,12 +72,22 @@ const MovieCard: React.FC<MovieCardProps> = ({
   const displayRating = formatRating();
 
   return (
-    <TouchableOpacity
-      style={styles.card}
+    <Pressable
+      isTVSelectable={true}
+      focusable={true}
+      android_tv_focusable={true}
+      onFocus={() => setIsCardFocused(true)}
+      onBlur={() => setIsCardFocused(false)}
+      style={[
+        styles.card,
+        TV_BASE_BORDER,
+        width ? { width } : undefined,
+        style,
+        isCardFocused && TV_FOCUS_STYLE
+      ]}
       onPress={handlePress}
-      activeOpacity={0.8}
     >
-      <View style={styles.imageContainer}>
+      <View style={[styles.imageContainer, { height }]}>
         <Image
           source={{ uri: image }}
           style={styles.movieImage}
@@ -76,19 +95,28 @@ const MovieCard: React.FC<MovieCardProps> = ({
         />
         <View style={styles.overlay}>
           {onFavoritePress && (
-            <TouchableOpacity 
-              style={styles.favoriteButton} 
+            <Pressable
+              focusable={true}
+              onFocus={() => setIsFavFocused(true)}
+              onBlur={() => setIsFavFocused(false)}
+              style={[
+                styles.favoriteButton,
+                isFavFocused && {
+                  borderColor: '#00E5FF',
+                  borderWidth: 2,
+                  transform: [{ scale: 1.1 }],
+                }
+              ]}
               onPress={handleFavoritePress}
-              activeOpacity={0.7}
             >
-              <Ionicons 
-                name={isFavorite ? "heart" : "heart-outline"} 
-                size={20} 
-                color={isFavorite ? "#ef4444" : "#ffffff"} 
+              <Ionicons
+                name={isFavorite ? "heart" : "heart-outline"}
+                size={20}
+                color={isFavorite ? "#ef4444" : "#ffffff"}
               />
-            </TouchableOpacity>
+            </Pressable>
           )}
-          
+
           {displayRating && (
             <View style={styles.ratingBadge}>
               <Text style={styles.ratingText}>⭐ {displayRating}</Text>
@@ -103,7 +131,7 @@ const MovieCard: React.FC<MovieCardProps> = ({
         </Text>
         <Text style={styles.movieYear}>{year}</Text>
       </View>
-    </TouchableOpacity>
+    </Pressable>
   );
 };
 

@@ -44,9 +44,9 @@ export interface Category {
   parent_id: number;
 }
 
-export interface LiveCategory extends Category {}
-export interface VodCategory extends Category {}
-export interface SeriesCategory extends Category {}
+export interface LiveCategory extends Category { }
+export interface VodCategory extends Category { }
+export interface SeriesCategory extends Category { }
 
 // ============================================
 // Live TV / Channels
@@ -219,6 +219,7 @@ export interface Series {
   episode_run_time: string;
   category_id: string;
   category_ids: number[];
+  seasons?: Season[]; // Sezon bilgileri
 }
 
 export interface SeriesInfo {
@@ -280,6 +281,7 @@ export interface Episode {
   season: number;
   direct_source: string;
   streamUrl?: string;
+  season_number?: number;
 }
 
 // ============================================

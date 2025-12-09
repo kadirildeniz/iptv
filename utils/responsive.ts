@@ -6,7 +6,26 @@ export const BREAKPOINTS = {
     desktop: 1280,
 };
 
-export type DeviceType = 'mobile' | 'tablet' | 'desktop';
+export type DeviceType = 'mobile' | 'tablet' | 'desktop' | 'tv';
+
+// TV tespiti - Platform.isTV zaten doğru çalışıyor
+console.log('🔍 Platform Debug:', {
+    isTV: Platform.isTV,
+    OS: Platform.OS,
+    Version: Platform.Version,
+});
+
+const { width, height } = Dimensions.get('window');
+
+// Platform.isTV zaten true dönüyor
+export const isTV = Platform.isTV === true;
+
+console.log('📺 TV Tespit Sonucu:', {
+    isTV,
+    width,
+    height,
+    'Platform.isTV': Platform.isTV,
+});
 
 export const getDeviceType = (width: number): DeviceType => {
     if (width < BREAKPOINTS.mobile) return 'mobile';
@@ -16,7 +35,7 @@ export const getDeviceType = (width: number): DeviceType => {
 
 export const getResponsiveValue = <T>(
     width: number,
-    values: { mobile: T; tablet: T; desktop: T }
+    values: { mobile: T; tablet: T; desktop: T; tv: T }
 ): T => {
     const deviceType = getDeviceType(width);
     return values[deviceType];
@@ -41,6 +60,7 @@ export const getResponsiveFontSize = (width: number, baseSize: number): number =
         mobile: 0.9,
         tablet: 1.0,
         desktop: 1.1,
+        tv: 1.2,
     };
     return baseSize * multipliers[deviceType];
 };
@@ -52,6 +72,7 @@ export const getResponsiveSpacing = (width: number, baseSpacing: number): number
         mobile: 0.8,
         tablet: 1.0,
         desktop: 1.2,
+        tv: 1.4,
     };
     return baseSpacing * multipliers[deviceType];
 };

@@ -9,16 +9,19 @@ import {
   Platform,
   SafeAreaView,
   TouchableOpacity,
+  Pressable,
   FlatList,
   TextInput,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { databaseService, database, seriesService, storageService, type Series, type SeriesInfo, type Episode } from '@/services';
 import { fonts } from '@/theme/fonts';
 import SeriesModel from '@/services/database/models/Series';
 import apiClient from '@/services/api/client';
 import { buildSeriesUrl } from '@/services/api/endpoints';
+import * as ScreenOrientation from 'expo-screen-orientation';
+import { useCallback } from 'react';
 
 const SeriesDetail: React.FC = () => {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -34,6 +37,21 @@ const SeriesDetail: React.FC = () => {
   const [isPlayerVisible, setIsPlayerVisible] = useState(false);
   const [isFavorite, setIsFavorite] = useState(false);
   const [isTogglingFavorite, setIsTogglingFavorite] = useState(false);
+  // TV Focus States
+  const [backFocused, setBackFocused] = useState(false);
+  const [favFocused, setFavFocused] = useState(false);
+  const [playFocused, setPlayFocused] = useState(false);
+  const [focusedSeasonId, setFocusedSeasonId] = useState<number | null>(null);
+  const [focusedEpisodeId, setFocusedEpisodeId] = useState<string | null>(null);
+
+  useFocusEffect(
+    useCallback(() => {
+      const timer = setTimeout(() => {
+        ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
+      }, 100);
+      return () => clearTimeout(timer);
+    }, [])
+  );
 
   useEffect(() => {
     if (id) {
@@ -89,52 +107,52 @@ const SeriesDetail: React.FC = () => {
                 if (seasons && Array.isArray(seasons) && seasons.length > 0) {
                   // URL'leri yeniden oluştur (DB'deki veri eski veya protokolsüz olabilir)
                   const credentials = await storageService.getCredentials();
-                  const baseUrl = await storageService.getItem('baseUrl');
+                  const baseUrl = await storageService.getItem<string>('baseUrl');
                   let episodesWithUrls = episodes;
 
                   if (credentials && baseUrl) {
-                      let fullBaseUrl = baseUrl;
-                      if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
-                          fullBaseUrl = `${credentials.protocol || 'http'}://${baseUrl}`;
-                      }
-                      
-                      episodesWithUrls = {};
-                      Object.keys(episodes).forEach((seasonKey) => {
-                          episodesWithUrls[seasonKey] = episodes[seasonKey].map((episode: any) => {
-                              const streamUrl = buildSeriesUrl(
-                                  fullBaseUrl,
-                                  credentials.username,
-                                  credentials.password,
-                                  episode.id,
-                                  episode.container_extension || 'mp4'
-                              );
-                              return {
-                                  ...episode,
-                                  streamUrl,
-                                  season_number: episode.season_number || parseInt(seasonKey) || 1,
-                              };
-                          });
+                    let fullBaseUrl = baseUrl;
+                    if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
+                      fullBaseUrl = `${credentials.protocol || 'http'}://${baseUrl}`;
+                    }
+
+                    episodesWithUrls = {};
+                    Object.keys(episodes).forEach((seasonKey) => {
+                      episodesWithUrls[seasonKey] = episodes[seasonKey].map((episode: any) => {
+                        const streamUrl = buildSeriesUrl(
+                          fullBaseUrl,
+                          credentials.username,
+                          credentials.password,
+                          episode.id,
+                          episode.container_extension || 'mp4'
+                        );
+                        return {
+                          ...episode,
+                          streamUrl,
+                          season_number: episode.season_number || parseInt(seasonKey) || 1,
+                        };
                       });
+                    });
                   }
 
                   setSeriesInfo({
                     info: {
-                        name: seriesData.name,
-                        cover: seriesData.cover || '',
-                        plot: seriesData.plot || '',
-                        cast: seriesData.cast || '',
-                        director: seriesData.director || '',
-                        genre: seriesData.genre || '',
-                        releaseDate: seriesData.releaseDate || '',
-                        last_modified: seriesData.last_modified || '',
-                        rating: seriesData.rating || '',
-                        rating_5based: seriesData.rating_5based || 0,
-                        backdrop_path: seriesData.backdrop_path || [],
-                        youtube_trailer: seriesData.youtube_trailer || '',
-                        episode_run_time: seriesData.episode_run_time || '',
-                        category_id: seriesData.category_id || '',
-                        category_ids: (seriesData.category_ids || []).map(id => id.toString()),
-                        tmdb_id: '',
+                      name: seriesData.name,
+                      cover: seriesData.cover || '',
+                      plot: seriesData.plot || '',
+                      cast: seriesData.cast || '',
+                      director: seriesData.director || '',
+                      genre: seriesData.genre || '',
+                      releaseDate: seriesData.releaseDate || '',
+                      last_modified: seriesData.last_modified || '',
+                      rating: seriesData.rating || '',
+                      rating_5based: seriesData.rating_5based || 0,
+                      backdrop_path: seriesData.backdrop_path || [],
+                      youtube_trailer: seriesData.youtube_trailer || '',
+                      episode_run_time: seriesData.episode_run_time || '',
+                      category_id: seriesData.category_id || '',
+                      category_ids: (seriesData.category_ids || []).map(id => id.toString()),
+                      tmdb_id: '',
                     },
                     seasons: seasons,
                     episodes: episodesWithUrls || {},
@@ -159,89 +177,89 @@ const SeriesDetail: React.FC = () => {
         setRefreshing(true);
 
         try {
-            // Eğer temel veri bile yoksa fallback olarak API'den çek
-            if (!seriesData) {
-                seriesData = await seriesService.getSeriesById(id);
-                if (seriesData) {
-                    setSeries(seriesData);
-                    const isFav = await databaseService.isFavorite(seriesData.series_id.toString());
-                    setIsFavorite(isFav);
-                }
-            }
-
+          // Eğer temel veri bile yoksa fallback olarak API'den çek
+          if (!seriesData) {
+            seriesData = await seriesService.getSeriesById(id);
             if (seriesData) {
-                // Detayları çek
-                const apiSeriesInfo = await seriesService.getSeriesInfo(id);
-                
-                // URL'leri ekle
-                const credentials = await storageService.getCredentials();
-                const baseUrl = await storageService.getItem('baseUrl');
-                
-                let episodesWithUrls = apiSeriesInfo.episodes;
-
-                if (credentials && baseUrl) {
-                    // baseUrl zaten protokol içeriyorsa kullan, yoksa ekle
-                    let fullBaseUrl = baseUrl;
-                    if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
-                        fullBaseUrl = `${credentials.protocol || 'http'}://${baseUrl}`;
-                    }
-                    
-                    episodesWithUrls = {};
-                    
-                    Object.keys(apiSeriesInfo.episodes).forEach((seasonKey) => {
-                        episodesWithUrls[seasonKey] = apiSeriesInfo.episodes[seasonKey].map((episode: any) => {
-                            const streamUrl = buildSeriesUrl(
-                                fullBaseUrl, // baseUrl yerine fullBaseUrl kullan
-                                credentials.username,
-                                credentials.password,
-                                episode.id,
-                                episode.container_extension || 'mp4'
-                            );
-                            
-                            return {
-                                ...episode,
-                                streamUrl,
-                                season_number: episode.season_number || parseInt(seasonKey) || 1,
-                            };
-                        });
-                    });
-                }
-
-                const finalSeriesInfo = {
-                    ...apiSeriesInfo,
-                    episodes: episodesWithUrls
-                };
-
-                setSeriesInfo(finalSeriesInfo);
-                if (finalSeriesInfo.seasons && finalSeriesInfo.seasons.length > 0) {
-                    setSelectedSeason(finalSeriesInfo.seasons[0].season_number);
-                }
-
-                // 3. Gelen detayları DB'ye kaydet (Cache Update)
-                if (database) {
-                    const dbSeries = await database.get<SeriesModel>('series').query().fetch();
-                    const localSerie = dbSeries.find(s => s.seriesId.toString() === id);
-
-                    if (localSerie) {
-                        await database.write(async () => {
-                            await localSerie.update(s => {
-                                s.seasons = JSON.stringify(finalSeriesInfo.seasons || []);
-                                s.episodes = JSON.stringify(finalSeriesInfo.episodes || {});
-                                // İstersen diğer detayları da güncelle
-                                s.cachedAt = new Date();
-                            });
-                        });
-                        console.log('💾 Detaylar DB\'ye kaydedildi (Cache Updated)');
-                    }
-                }
-            } else {
-                setError('Dizi bulunamadı. Lütfen daha sonra tekrar deneyin.');
+              setSeries(seriesData);
+              const isFav = await databaseService.isFavorite(seriesData.series_id.toString());
+              setIsFavorite(isFav);
             }
+          }
+
+          if (seriesData) {
+            // Detayları çek
+            const apiSeriesInfo = await seriesService.getSeriesInfo(id);
+
+            // URL'leri ekle
+            const credentials = await storageService.getCredentials();
+            const baseUrl = await storageService.getItem<string>('baseUrl');
+
+            let episodesWithUrls = apiSeriesInfo.episodes;
+
+            if (credentials && baseUrl) {
+              // baseUrl zaten protokol içeriyorsa kullan, yoksa ekle
+              let fullBaseUrl = baseUrl;
+              if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
+                fullBaseUrl = `${credentials.protocol || 'http'}://${baseUrl}`;
+              }
+
+              episodesWithUrls = {};
+
+              Object.keys(apiSeriesInfo.episodes).forEach((seasonKey) => {
+                episodesWithUrls[seasonKey] = apiSeriesInfo.episodes[seasonKey].map((episode: any) => {
+                  const streamUrl = buildSeriesUrl(
+                    fullBaseUrl, // baseUrl yerine fullBaseUrl kullan
+                    credentials.username,
+                    credentials.password,
+                    episode.id,
+                    episode.container_extension || 'mp4'
+                  );
+
+                  return {
+                    ...episode,
+                    streamUrl,
+                    season_number: episode.season_number || parseInt(seasonKey) || 1,
+                  };
+                });
+              });
+            }
+
+            const finalSeriesInfo = {
+              ...apiSeriesInfo,
+              episodes: episodesWithUrls
+            };
+
+            setSeriesInfo(finalSeriesInfo);
+            if (finalSeriesInfo.seasons && finalSeriesInfo.seasons.length > 0) {
+              setSelectedSeason(finalSeriesInfo.seasons[0].season_number);
+            }
+
+            // 3. Gelen detayları DB'ye kaydet (Cache Update)
+            if (database) {
+              const dbSeries = await database.get<SeriesModel>('series').query().fetch();
+              const localSerie = dbSeries.find(s => s.seriesId.toString() === id);
+
+              if (localSerie) {
+                await database.write(async () => {
+                  await localSerie.update(s => {
+                    s.seasons = JSON.stringify(finalSeriesInfo.seasons || []);
+                    s.episodes = JSON.stringify(finalSeriesInfo.episodes || {});
+                    // İstersen diğer detayları da güncelle
+                    s.cachedAt = new Date();
+                  });
+                });
+                console.log('💾 Detaylar DB\'ye kaydedildi (Cache Updated)');
+              }
+            }
+          } else {
+            setError('Dizi bulunamadı. Lütfen daha sonra tekrar deneyin.');
+          }
         } catch (apiError) {
-            console.error('Lazy load error:', apiError);
-            // Hata olsa bile temel verilerle göstermeye devam et (veya hata mesajı göster)
+          console.error('Lazy load error:', apiError);
+          // Hata olsa bile temel verilerle göstermeye devam et (veya hata mesajı göster)
         } finally {
-            setRefreshing(false);
+          setRefreshing(false);
         }
       }
 
@@ -294,6 +312,8 @@ const SeriesDetail: React.FC = () => {
   };
 
   const handleEpisodePress = (episode: Episode) => {
+    if (!series) return;
+
     console.log('📺 Episode pressed:', {
       hasStreamUrl: !!episode.streamUrl,
       streamUrl: episode.streamUrl,
@@ -366,7 +386,7 @@ const SeriesDetail: React.FC = () => {
   }
 
   if (!series && !error) {
-      return null;
+    return null;
   }
 
   if (!series || error) {
@@ -396,25 +416,25 @@ const SeriesDetail: React.FC = () => {
 
   const genres = baseInfo.genre
     ? String(baseInfo.genre)
-        .split(/[,|]/)
-        .map((g: string) => g.trim())
-        .filter(Boolean)
+      .split(/[,|]/)
+      .map((g: string) => g.trim())
+      .filter(Boolean)
     : series.genre
-    ? String(series.genre)
+      ? String(series.genre)
         .split(/[,|]/)
         .map((g: string) => g.trim())
         .filter(Boolean)
-    : [];
+      : [];
 
   const rawCast: Array<any> = Array.isArray(baseInfo.actor_list)
     ? baseInfo.actor_list
     : Array.isArray(baseInfo.cast_list)
-    ? baseInfo.cast_list
-    : baseInfo.actors || series.cast
-    ? String(baseInfo.actors || series.cast)
-        .split(',')
-        .map((name: string) => ({ name: name.trim() }))
-    : [];
+      ? baseInfo.cast_list
+      : baseInfo.actors || series.cast
+        ? String(baseInfo.actors || series.cast)
+          .split(',')
+          .map((name: string) => ({ name: name.trim() }))
+        : [];
 
   const castList: Array<{ name: string; role?: string; image?: string | null }> = rawCast
     .map((member: any) => ({
@@ -454,12 +474,12 @@ const SeriesDetail: React.FC = () => {
   const mediaItems =
     baseInfo.youtube_trailer
       ? [
-          {
-            title: 'Fragman',
-            duration: 'Fragman',
-            url: baseInfo.youtube_trailer,
-          },
-        ]
+        {
+          title: 'Fragman',
+          duration: 'Fragman',
+          url: baseInfo.youtube_trailer,
+        },
+      ]
       : [];
 
   return (
@@ -471,12 +491,31 @@ const SeriesDetail: React.FC = () => {
           <View style={styles.heroOverlay} />
 
           <View style={styles.heroContent}>
-            <TouchableOpacity style={styles.heroBackButton} onPress={() => router.back()} activeOpacity={0.85}>
+            <Pressable
+              isTVSelectable={true}
+              focusable={true}
+              android_tv_focusable={true}
+              hasTVPreferredFocus={true}
+              onFocus={() => setBackFocused(true)}
+              onBlur={() => setBackFocused(false)}
+              style={[
+                styles.heroBackButton,
+                backFocused && styles.buttonFocused
+              ]}
+              onPress={() => router.back()}
+            >
               <Ionicons name="chevron-back" size={22} color="#ffffff" />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.heroFavoriteButton}
-              activeOpacity={0.85}
+            </Pressable>
+            <Pressable
+              isTVSelectable={true}
+              focusable={true}
+              android_tv_focusable={true}
+              onFocus={() => setFavFocused(true)}
+              onBlur={() => setFavFocused(false)}
+              style={[
+                styles.heroFavoriteButton,
+                favFocused && styles.buttonFocused
+              ]}
               onPress={handleToggleFavorite}
               disabled={isTogglingFavorite}
             >
@@ -489,7 +528,7 @@ const SeriesDetail: React.FC = () => {
                   color={isFavorite ? '#f97316' : 'rgba(249, 115, 22, 0.6)'}
                 />
               )}
-            </TouchableOpacity>
+            </Pressable>
 
             <View style={styles.heroInfo}>
               <View style={styles.heroHeader}>
@@ -502,19 +541,26 @@ const SeriesDetail: React.FC = () => {
 
               <View style={styles.heroActions}>
                 {seriesInfo && seriesInfo.seasons && seriesInfo.seasons.length > 0 && selectedSeason !== null && episodes.length > 0 && episodes[0]?.streamUrl ? (
-                  <TouchableOpacity
-                    style={styles.playButton}
-                    activeOpacity={0.9}
+                  <Pressable
+                    isTVSelectable={true}
+                    focusable={true}
+                    android_tv_focusable={true}
+                    onFocus={() => setPlayFocused(true)}
+                    onBlur={() => setPlayFocused(false)}
+                    style={[
+                      styles.playButton,
+                      playFocused && styles.buttonFocused
+                    ]}
                     onPress={() => handleEpisodePress(episodes[0])}
                   >
                     <Ionicons name="play" size={18} color="#ffffff" style={{ marginRight: 8 }} />
                     <Text style={styles.playButtonText}>İlk Bölümü İzle</Text>
-                  </TouchableOpacity>
+                  </Pressable>
                 ) : seriesInfo && seriesInfo.seasons && seriesInfo.seasons.length === 0 ? (
-                  <TouchableOpacity style={[styles.playButton, styles.playButtonDisabled]} activeOpacity={0.9} disabled>
+                  <Pressable style={[styles.playButton, styles.playButtonDisabled]} disabled>
                     <Ionicons name="play" size={18} color="#ffffff" style={{ marginRight: 8 }} />
                     <Text style={styles.playButtonText}>Bölüm Bulunamadı</Text>
-                  </TouchableOpacity>
+                  </Pressable>
                 ) : loading || refreshing ? (
                   <View style={[styles.playButton, styles.playButtonDisabled, { justifyContent: 'center', alignItems: 'center' }]}>
                     <ActivityIndicator size="small" color="#ffffff" />
@@ -534,10 +580,10 @@ const SeriesDetail: React.FC = () => {
         <View style={styles.body}>
           {/* Lazy Load Yükleniyor Göstergesi */}
           {refreshing && !description && (
-             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
-                <ActivityIndicator size="small" color="#0ea5e9" style={{ marginRight: 10 }}/>
-                <Text style={{ color: '#94a3b8', fontSize: 13 }}>Detaylar yükleniyor...</Text>
-             </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
+              <ActivityIndicator size="small" color="#0ea5e9" style={{ marginRight: 10 }} />
+              <Text style={{ color: '#94a3b8', fontSize: 13 }}>Detaylar yükleniyor...</Text>
+            </View>
           )}
 
           {description && (
@@ -557,13 +603,18 @@ const SeriesDetail: React.FC = () => {
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.seasonsRow}
                 renderItem={({ item }) => (
-                  <TouchableOpacity
+                  <Pressable
+                    isTVSelectable={true}
+                    focusable={true}
+                    android_tv_focusable={true}
+                    onFocus={() => setFocusedSeasonId(item.season_number)}
+                    onBlur={() => setFocusedSeasonId(null)}
                     style={[
                       styles.seasonChip,
                       selectedSeason === item.season_number && styles.seasonChipSelected,
+                      focusedSeasonId === item.season_number && styles.seasonChipFocused,
                     ]}
                     onPress={() => handleSeasonSelect(item.season_number)}
-                    activeOpacity={0.8}
                   >
                     <Text
                       style={[
@@ -574,7 +625,7 @@ const SeriesDetail: React.FC = () => {
                       Sezon {item.season_number}
                     </Text>
                     <Text style={styles.seasonChipMeta}>{item.episode_count} Bölüm</Text>
-                  </TouchableOpacity>
+                  </Pressable>
                 )}
               />
             </View>
@@ -585,14 +636,19 @@ const SeriesDetail: React.FC = () => {
               <Text style={styles.sectionTitle}>Sezon {selectedSeason} - Bölümler</Text>
               <View style={styles.episodesList}>
                 {episodes.map((episode, index) => (
-                  <TouchableOpacity
+                  <Pressable
                     key={episode.id || index}
+                    isTVSelectable={true}
+                    focusable={true}
+                    android_tv_focusable={true}
+                    onFocus={() => setFocusedEpisodeId(episode.id?.toString() || index.toString())}
+                    onBlur={() => setFocusedEpisodeId(null)}
                     style={[
                       styles.episodeCard,
                       !episode.streamUrl && styles.episodeCardDisabled,
+                      focusedEpisodeId === (episode.id?.toString() || index.toString()) && styles.episodeCardFocused,
                     ]}
                     onPress={() => episode.streamUrl && handleEpisodePress(episode)}
-                    activeOpacity={0.8}
                     disabled={!episode.streamUrl}
                   >
                     <View style={styles.episodeNumber}>
@@ -623,7 +679,7 @@ const SeriesDetail: React.FC = () => {
                     ) : (
                       <Ionicons name="refresh-circle" size={28} color="#64748b" />
                     )}
-                  </TouchableOpacity>
+                  </Pressable>
                 ))}
               </View>
             </View>
@@ -768,6 +824,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(249, 115, 22, 0.3)',
   },
+  buttonFocused: {
+    borderColor: '#00E5FF',
+    borderWidth: 3,
+    transform: [{ scale: 1.08 }],
+  },
   heroInfo: {
     flex: 1,
     justifyContent: 'flex-end',
@@ -889,6 +950,11 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(30, 144, 255, 0.3)',
     borderColor: '#1e90ff',
   },
+  seasonChipFocused: {
+    borderColor: '#00E5FF',
+    borderWidth: 2,
+    transform: [{ scale: 1.05 }],
+  },
   seasonChipText: {
     color: '#93c5fd',
     fontSize: 15,
@@ -917,6 +983,11 @@ const styles = StyleSheet.create({
   },
   episodeCardDisabled: {
     opacity: 0.5,
+  },
+  episodeCardFocused: {
+    borderColor: '#00E5FF',
+    borderWidth: 2,
+    transform: [{ scale: 1.02 }],
   },
   episodeNumber: {
     width: 48,

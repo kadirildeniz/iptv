@@ -4,6 +4,7 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
+  Pressable,
   ActivityIndicator,
   Modal,
   StatusBar,
@@ -62,6 +63,7 @@ const PlayerScreen: React.FC = () => {
 
   // Player State
   const [paused, setPaused] = useState(false);
+  const pausedRef = useRef(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [duration, setDuration] = useState(0);
@@ -98,6 +100,15 @@ const PlayerScreen: React.FC = () => {
     bufferForPlaybackMs: 2500,
     bufferForPlaybackAfterRebufferMs: 5000,
   });
+
+  // TV Focus States
+  const [backFocused, setBackFocused] = useState(false);
+  const [tracksFocused, setTracksFocused] = useState(false);
+  const [settingsFocused, setSettingsFocused] = useState(false);
+  const [skipBackFocused, setSkipBackFocused] = useState(false);
+  const [playFocused, setPlayFocused] = useState(false);
+  const [skipForwardFocused, setSkipForwardFocused] = useState(false);
+  const [sliderFocused, setSliderFocused] = useState(false);
   const [dialogEnhancement, setDialogEnhancement] = useState(false);
 
   // Tracks
@@ -112,7 +123,7 @@ const PlayerScreen: React.FC = () => {
   useEffect(() => {
     initialize();
     return () => {
-      ScreenOrientation.unlockAsync();
+      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
       if (hideControlsTimer.current) {
         clearTimeout(hideControlsTimer.current);
       }
@@ -131,15 +142,30 @@ const PlayerScreen: React.FC = () => {
     }
   }, [audioSessionId, audioBoostLevel]);
 
+  // Auto-hide controls effect - kontroller görünürken ve video oynuyorken 4 saniye sonra gizle
+  useEffect(() => {
+    if (controlsVisible && !paused && !loading) {
+      const timer = setTimeout(() => {
+        setControlsVisible(false);
+      }, 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [controlsVisible, paused, loading]);
+
   const initialize = async () => {
     try {
       await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
 
-      // Brightness izni
-      const { status } = await Brightness.requestPermissionsAsync();
-      if (status === 'granted') {
-        const currentBrightness = await Brightness.getBrightnessAsync();
-        setBrightness(currentBrightness);
+      // Brightness izni - Android TV'de desteklenmiyor, hata verirse atla
+      try {
+        const { status } = await Brightness.requestPermissionsAsync();
+        if (status === 'granted') {
+          const currentBrightness = await Brightness.getBrightnessAsync();
+          setBrightness(currentBrightness);
+        }
+      } catch (brightnessError) {
+        console.log('Brightness API not supported (probably Android TV):', brightnessError);
+        // Android TV'de parlaklık API'si çalışmıyor, devam et
       }
 
       const savedResizeMode = await storageService.getItem<string>('default_resize_mode');
@@ -265,7 +291,8 @@ const PlayerScreen: React.FC = () => {
       clearTimeout(hideControlsTimer.current);
     }
     hideControlsTimer.current = setTimeout(() => {
-      if (!paused) {
+      // ref kullanarak güncel paused değerini kontrol et
+      if (!pausedRef.current) {
         setControlsVisible(false);
       }
     }, 4000);
@@ -284,7 +311,9 @@ const PlayerScreen: React.FC = () => {
 
   const handlePlayPause = () => {
     if (!paused) saveProgress();
-    setPaused(!paused);
+    const newPaused = !paused;
+    setPaused(newPaused);
+    pausedRef.current = newPaused;
     showControlsTemporarily();
   };
 
@@ -341,7 +370,12 @@ const PlayerScreen: React.FC = () => {
       } else {
         runOnJS(setBrightness)((prev) => {
           const newVal = Math.max(0, Math.min(1, prev + delta));
-          Brightness.setSystemBrightnessAsync(newVal);
+          // Android TV'de desteklenmiyor, hata verirse sessizce atla
+          try {
+            Brightness.setSystemBrightnessAsync(newVal);
+          } catch (e) {
+            // Ignore brightness errors on Android TV
+          }
           return newVal;
         });
         runOnJS(setGestureType)('brightness');
@@ -411,7 +445,7 @@ const PlayerScreen: React.FC = () => {
   };
 
   const handleBack = async () => {
-    await ScreenOrientation.unlockAsync();
+    await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
     router.back();
   };
 
@@ -492,11 +526,11 @@ const PlayerScreen: React.FC = () => {
               selectedAudioTrack={{
                 type: "index",
                 value: selectedAudioTrack
-              }}
+              } as any}
               selectedTextTrack={{
                 type: selectedTextTrack === -1 ? "disabled" : "index",
                 value: selectedTextTrack === -1 ? undefined : selectedTextTrack
-              }}
+              } as any}
             />
 
             {/* Gesture Feedback */}
@@ -546,30 +580,97 @@ const PlayerScreen: React.FC = () => {
       {controlsVisible && (
         <View style={styles.controlsOverlay}>
           <View style={styles.topBar}>
-            <TouchableOpacity style={styles.topButton} onPress={handleBack}>
+            <Pressable
+              isTVSelectable={true}
+              focusable={true}
+              android_tv_focusable={true}
+              hasTVPreferredFocus={true}
+              onFocus={() => setBackFocused(true)}
+              onBlur={() => setBackFocused(false)}
+              style={[
+                styles.topButton,
+                backFocused && styles.buttonFocused
+              ]}
+              onPress={handleBack}
+            >
               <Ionicons name="arrow-back" size={28} color="#fff" />
-            </TouchableOpacity>
+            </Pressable>
             <Text style={styles.videoTitle} numberOfLines={1}>{title}</Text>
             <View style={styles.topRight}>
-              <TouchableOpacity style={styles.topButton} onPress={() => setTracksVisible(true)}>
+              <Pressable
+                isTVSelectable={true}
+                focusable={true}
+                android_tv_focusable={true}
+                onFocus={() => setTracksFocused(true)}
+                onBlur={() => setTracksFocused(false)}
+                style={[
+                  styles.topButton,
+                  tracksFocused && styles.buttonFocused
+                ]}
+                onPress={() => setTracksVisible(true)}
+              >
                 <Ionicons name="chatbubbles-outline" size={24} color="#fff" />
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.topButton} onPress={() => setSettingsVisible(true)}>
+              </Pressable>
+              <Pressable
+                isTVSelectable={true}
+                focusable={true}
+                android_tv_focusable={true}
+                onFocus={() => setSettingsFocused(true)}
+                onBlur={() => setSettingsFocused(false)}
+                style={[
+                  styles.topButton,
+                  settingsFocused && styles.buttonFocused
+                ]}
+                onPress={() => setSettingsVisible(true)}
+              >
                 <Ionicons name="settings-outline" size={24} color="#fff" />
-              </TouchableOpacity>
+              </Pressable>
             </View>
           </View>
 
           <View style={styles.centerControls}>
-            <TouchableOpacity style={styles.controlButton} onPress={() => handleSkip(-10)}>
+            <Pressable
+              isTVSelectable={true}
+              focusable={true}
+              android_tv_focusable={true}
+              onFocus={() => setSkipBackFocused(true)}
+              onBlur={() => setSkipBackFocused(false)}
+              style={[
+                styles.controlButton,
+                skipBackFocused && styles.buttonFocused
+              ]}
+              onPress={() => handleSkip(-10)}
+            >
               <Ionicons name="play-back" size={40} color="#fff" />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.playButton} onPress={handlePlayPause}>
+            </Pressable>
+            <Pressable
+              isTVSelectable={true}
+              focusable={true}
+              android_tv_focusable={true}
+              onFocus={() => setPlayFocused(true)}
+              onBlur={() => setPlayFocused(false)}
+              style={[
+                styles.playButton,
+                playFocused && styles.buttonFocused
+              ]}
+              onPress={handlePlayPause}
+            >
               <Ionicons name={paused ? 'play' : 'pause'} size={60} color="#fff" />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.controlButton} onPress={() => handleSkip(10)}>
+            </Pressable>
+            <Pressable
+              isTVSelectable={true}
+              focusable={true}
+              android_tv_focusable={true}
+              onFocus={() => setSkipForwardFocused(true)}
+              onBlur={() => setSkipForwardFocused(false)}
+              style={[
+                styles.controlButton,
+                skipForwardFocused && styles.buttonFocused
+              ]}
+              onPress={() => handleSkip(10)}
+            >
               <Ionicons name="play-forward" size={40} color="#fff" />
-            </TouchableOpacity>
+            </Pressable>
           </View>
 
           <View style={styles.bottomBar}>
@@ -578,18 +679,30 @@ const PlayerScreen: React.FC = () => {
               <Text style={styles.timeSeparator}>/</Text>
               <Text style={styles.timeText}>{formatTime(duration)}</Text>
             </View>
-            <Slider
-              style={styles.slider}
-              minimumValue={0}
-              maximumValue={duration}
-              value={currentTime}
-              onValueChange={setCurrentTime}
-              onSlidingStart={handleSeekStart}
-              onSlidingComplete={handleSeekEnd}
-              minimumTrackTintColor="#3b82f6"
-              maximumTrackTintColor="rgba(255, 255, 255, 0.3)"
-              thumbTintColor="#fff"
-            />
+            <Pressable
+              isTVSelectable={true}
+              focusable={true}
+              android_tv_focusable={true}
+              onFocus={() => setSliderFocused(true)}
+              onBlur={() => setSliderFocused(false)}
+              style={[
+                styles.sliderWrapper,
+                sliderFocused && styles.sliderFocused
+              ]}
+            >
+              <Slider
+                style={styles.slider}
+                minimumValue={0}
+                maximumValue={duration}
+                value={currentTime}
+                onValueChange={setCurrentTime}
+                onSlidingStart={handleSeekStart}
+                onSlidingComplete={handleSeekEnd}
+                minimumTrackTintColor={sliderFocused ? "#00E5FF" : "#3b82f6"}
+                maximumTrackTintColor="rgba(255, 255, 255, 0.3)"
+                thumbTintColor={sliderFocused ? "#00E5FF" : "#fff"}
+              />
+            </Pressable>
           </View>
         </View>
       )}
@@ -701,16 +814,19 @@ const styles = StyleSheet.create({
   loadingText: { color: '#fff', fontSize: 16, fontFamily: fonts.medium, marginTop: 16 },
   controlsOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0, 0, 0, 0.4)', justifyContent: 'space-between' },
   topBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingTop: 20, paddingBottom: 10 },
-  topButton: { padding: 8 },
+  topButton: { padding: 8, borderWidth: 2, borderColor: 'transparent', borderRadius: 12 },
   videoTitle: { flex: 1, color: '#fff', fontSize: 18, fontFamily: fonts.semibold, marginHorizontal: 12 },
   topRight: { flexDirection: 'row', gap: 8 },
   centerControls: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 40 },
-  controlButton: { padding: 12, backgroundColor: 'rgba(0, 0, 0, 0.5)', borderRadius: 50 },
-  playButton: { padding: 20, backgroundColor: 'rgba(0, 0, 0, 0.6)', borderRadius: 60 },
+  controlButton: { padding: 12, backgroundColor: 'rgba(0, 0, 0, 0.5)', borderRadius: 50, borderWidth: 2, borderColor: 'transparent' },
+  playButton: { padding: 20, backgroundColor: 'rgba(0, 0, 0, 0.6)', borderRadius: 60, borderWidth: 3, borderColor: 'transparent' },
+  buttonFocused: { borderColor: '#00E5FF', transform: [{ scale: 1.1 }] },
   bottomBar: { paddingHorizontal: 20, paddingBottom: 20 },
   timeContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
   timeText: { color: '#fff', fontSize: 14, fontFamily: fonts.medium },
   timeSeparator: { color: 'rgba(255, 255, 255, 0.6)', fontSize: 14, marginHorizontal: 4 },
+  sliderWrapper: { width: '100%', borderWidth: 2, borderColor: 'transparent', borderRadius: 8, padding: 4 },
+  sliderFocused: { borderColor: '#00E5FF' },
   slider: { width: '100%', height: 40 },
   errorContainer: { flex: 1, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center', padding: 40 },
   errorTitle: { color: '#fff', fontSize: 24, fontFamily: fonts.bold, marginTop: 20, marginBottom: 12 },

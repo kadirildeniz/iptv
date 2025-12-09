@@ -1,0 +1,31 @@
+# En önemlisi bu! Kütüphaneleri gönderme.
+node_modules/
+
+# Git geçmişi çok yer kaplar, gönderme.
+.git/
+
+# Expo önbellekleri
+.expo/
+.maestro/
+
+# Önceki build çıktıları (APK/AAB dosyaları)
+*.apk
+*.aab
+*.ipa
+
+# Sistem dosyaları
+.DS_Store
+Thumbs.db
+npm-debug.log
+yarn-error.log
+
+# Web build dosyaları (varsa)
+dist/
+web-build/
+
+# Eğer "Prebuild" (Config Plugin) sistemini tam oturttaysak, 
+# android ve ios klasörlerini de sunucunun sıfırdan oluşturması en temizidir.
+# Ancak manuel değişiklik yaptıysan bu alt satırları silmelisin!
+# Biz plugin yazdığımız için bunları kapatabilirsin:
+android/
+ios/

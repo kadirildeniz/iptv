@@ -44,4 +44,3 @@ class AudioBoosterModule(reactContext: ReactApplicationContext) : ReactContextBa
         }
     }
 }
-

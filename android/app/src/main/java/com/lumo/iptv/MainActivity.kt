@@ -1,4 +1,4 @@
-package com.anonymous.iptv
+package com.lumo.iptv
 import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build

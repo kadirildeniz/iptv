@@ -3,25 +3,25 @@ import {
   View,
   Text,
   TextInput,
-  TouchableOpacity,
+  Pressable,
   StyleSheet,
   Alert,
   ActivityIndicator,
   Platform,
   KeyboardAvoidingView,
   ScrollView,
-  SafeAreaView,
+  Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import authService from '@/services/auth.service';
 import storageService from '@/services/storage.service';
+import { isTV } from '@/utils/responsive';
 
 export default function LoginScreen() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(true);
-  const [rememberMe, setRememberMe] = useState(false);
 
   // Form state
   const [iptvName, setIptvName] = useState('');
@@ -39,7 +39,7 @@ export default function LoginScreen() {
     try {
       // URL'yi parse et (örn: http://example.com:8080 veya example.com:8080)
       let cleanUrl = urlString.trim();
-      
+
       // http:// veya https:// yoksa ekle
       if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
         cleanUrl = 'http://' + cleanUrl;
@@ -64,10 +64,10 @@ export default function LoginScreen() {
 
     try {
       setLoading(true);
-      
+
       // URL'yi parse et
       const { host, port, protocol } = parseUrl(url);
-      
+
       const credentials = {
         host,
         port,
@@ -77,10 +77,10 @@ export default function LoginScreen() {
       };
 
       console.log('🔐 Login attempt:', { host, port, username, iptvName });
-      
+
       // API ile giriş yap (bu zaten apiClient.saveCredentials yapıyor)
       const accountInfo = await authService.login(credentials);
-      
+
       // Ek olarak IP TV ismini ve diğer bilgileri storageService'e kaydet
       await storageService.saveCredentials({
         host: credentials.host,
@@ -90,28 +90,28 @@ export default function LoginScreen() {
         iptvName: iptvName.trim(),
         protocol: credentials.protocol,
       });
-      
+
       // Base URL'i de kaydet (sync service için gerekli)
       const baseUrl = `${credentials.host}${credentials.port ? ':' + credentials.port : ''}`;
       await storageService.setItem('baseUrl', baseUrl);
-      
+
       // İlk giriş kontrolü
       const isFirstLogin = !(await storageService.isFirstLoginCompleted());
-      
+
       if (isFirstLogin) {
         console.log('ℹ️ İlk giriş tespit edildi.');
         // İlk girişte otomatik sync yapılmayacak, kullanıcı ana sayfadan manuel yapacak
         // Ancak flag'i işaretleyelim ki tekrar sormasın
         await storageService.markFirstLoginCompleted();
       }
-      
+
       Alert.alert('Başarılı', 'Giriş yapıldı! Lütfen ana sayfadaki "Tüm Verileri Güncelle" butonuna basarak içerikleri indirin.', [
         {
           text: 'Tamam',
           onPress: () => router.replace('/'),
         },
       ]);
-      
+
       console.log('✅ Login successful:', accountInfo);
     } catch (error: any) {
       console.error('❌ Login error:', error);
@@ -131,36 +131,43 @@ export default function LoginScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.gradientOverlay}>
-        <View style={styles.glowTop} />
-        <View style={styles.glowBottom} />
-      </View>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.keyboardView}
-      >
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-        >
-          <View style={styles.content}>
-            <View style={styles.formWrapper}>
+    <View style={styles.container}>
+      <View style={styles.splitLayout}>
+        {/* Sol Taraf - Logo ve Slogan */}
+        <View style={styles.leftPanel}>
+          <View style={styles.logoContainer}>
+            <Image
+              source={require('../assets/images/splash.png')}
+              style={styles.logo}
+              resizeMode="contain"
+            />
+            <Text style={styles.slogan}>Sınırsız Eğlence</Text>
+          </View>
+        </View>
+
+        {/* Sağ Taraf - Giriş Formu */}
+        <View style={styles.rightPanel}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={styles.keyboardView}
+          >
+            <ScrollView
+              contentContainerStyle={styles.scrollContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              bounces={false}
+            >
               <View style={styles.formContainer}>
-                <Text style={styles.welcomeTitle}>Sınırsız Eğlence Dünyasına Hoş Geldiniz</Text>
-                <Text style={styles.welcomeSubtitle}>Hesabınıza giriş yapın</Text>
+                <View style={styles.headerContainer}>
+                  <Text style={styles.welcomeTitle}>Giriş Yap</Text>
+                  <Text style={styles.welcomeSubtitle}>Hesabınıza erişmek için bilgilerinizi girin</Text>
+                </View>
 
                 <View style={styles.inputGroup}>
-                  <MaterialCommunityIcons
-                    name="television"
-                    size={22}
-                    color="#94a3b8"
-                    style={styles.inputIcon}
-                  />
                   <TextInput
                     style={styles.input}
-                    placeholder="IP TV İsminizi Girin"
-                    placeholderTextColor="#94a3b8"
+                    placeholder="IP TV İsmi (Örn: Ev TV)"
+                    placeholderTextColor="#64748b"
                     value={iptvName}
                     onChangeText={setIptvName}
                     autoCapitalize="words"
@@ -168,16 +175,10 @@ export default function LoginScreen() {
                 </View>
 
                 <View style={styles.inputGroup}>
-                  <MaterialCommunityIcons
-                    name="account-outline"
-                    size={22}
-                    color="#94a3b8"
-                    style={styles.inputIcon}
-                  />
                   <TextInput
                     style={styles.input}
-                    placeholder="Kullanıcı Adınızı Girin"
-                    placeholderTextColor="#94a3b8"
+                    placeholder="Kullanıcı Adı"
+                    placeholderTextColor="#64748b"
                     value={username}
                     onChangeText={setUsername}
                     autoCapitalize="none"
@@ -186,16 +187,10 @@ export default function LoginScreen() {
                 </View>
 
                 <View style={styles.inputGroup}>
-                  <MaterialCommunityIcons
-                    name="lock-outline"
-                    size={22}
-                    color="#94a3b8"
-                    style={styles.inputIcon}
-                  />
                   <TextInput
                     style={styles.input}
-                    placeholder="Şifrenizi Girin"
-                    placeholderTextColor="#94a3b8"
+                    placeholder="Şifre"
+                    placeholderTextColor="#64748b"
                     value={password}
                     onChangeText={setPassword}
                     secureTextEntry
@@ -205,16 +200,10 @@ export default function LoginScreen() {
                 </View>
 
                 <View style={styles.inputGroup}>
-                  <MaterialCommunityIcons
-                    name="link-variant"
-                    size={22}
-                    color="#94a3b8"
-                    style={styles.inputIcon}
-                  />
                   <TextInput
                     style={styles.input}
-                    placeholder="URL'inizi Girin"
-                    placeholderTextColor="#94a3b8"
+                    placeholder="Sunucu Adresi (http://example.com:8080)"
+                    placeholderTextColor="#64748b"
                     value={url}
                     onChangeText={setUrl}
                     autoCapitalize="none"
@@ -223,208 +212,131 @@ export default function LoginScreen() {
                   />
                 </View>
 
-                <View style={styles.actionsRow}>
-                  <TouchableOpacity
-                    style={styles.rememberMe}
-                    onPress={() => setRememberMe(prev => !prev)}
-                    activeOpacity={0.8}
-                  >
-                    <View style={[styles.checkbox, rememberMe && styles.checkboxChecked]}>
-                      {rememberMe && (
-                        <MaterialCommunityIcons name="check" size={16} color="#fff" />
-                      )}
-                    </View>
-                    <Text style={styles.rememberMeText}>Beni Hatırla</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity>
-                    <Text style={styles.forgotPassword}>Şifremi Unuttum?</Text>
-                  </TouchableOpacity>
-                </View>
-
-                <TouchableOpacity
-                  style={[styles.loginButton, loading && styles.loginButtonDisabled]}
+                <Pressable
+                  focusable={true}
+                  hasTVPreferredFocus={isTV}
+                  style={({ pressed, focused }) => [
+                    styles.loginButton,
+                    loading && styles.loginButtonDisabled,
+                    focused && {
+                      borderColor: '#00E5FF',
+                      borderWidth: 3,
+                      transform: [{ scale: 1.05 }],
+                    }
+                  ]}
                   onPress={handleLogin}
                   disabled={loading}
-                  activeOpacity={0.9}
                 >
                   {loading ? (
                     <ActivityIndicator color="#fff" />
                   ) : (
-                    <Text style={styles.loginButtonText}>Giriş Yap</Text>
+                    <Text style={styles.loginButtonText}>Giriş Yap Test 123</Text>
                   )}
-                </TouchableOpacity>
+                </Pressable>
               </View>
-            </View>
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+            </ScrollView>
+          </KeyboardAvoidingView>
+        </View>
+      </View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#021129',
+    backgroundColor: '#0f172a',
   },
-  gradientOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#021b56',
+  splitLayout: {
+    flex: 1,
+    flexDirection: 'row',
   },
-  glowTop: {
-    position: 'absolute',
-    top: -140,
-    left: -80,
-    width: 260,
-    height: 260,
-    borderRadius: 130,
-    backgroundColor: 'rgba(0, 51, 171, 0.35)',
-    shadowColor: '#0033ab',
-    shadowOpacity: 0.5,
-    shadowRadius: 40,
-    shadowOffset: { width: 0, height: 0 },
+  leftPanel: {
+    flex: 0.4,
+    backgroundColor: '#0033ab', // Logo arkaplanı ile eşleşmesi için mavi yapıldı
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+    borderRightWidth: 1,
+    borderRightColor: 'rgba(255, 255, 255, 0.1)',
   },
-  glowBottom: {
-    position: 'absolute',
-    bottom: -160,
-    right: -100,
-    width: 320,
-    height: 320,
-    borderRadius: 160,
-    backgroundColor: 'rgba(0, 51, 171, 0.28)',
-    shadowColor: '#0033ab',
-    shadowOpacity: 0.45,
-    shadowRadius: 60,
-    shadowOffset: { width: 0, height: 0 },
+  logoContainer: {
+    alignItems: 'center',
+    padding: 20,
+    width: '100%',
+  },
+  logo: {
+    width: '90%',
+    aspectRatio: 2.5,
+    height: undefined,
+    marginBottom: 10,
+  },
+  slogan: {
+    color: 'rgba(255, 255, 255, 0.95)',
+    fontSize: 26,
+    fontWeight: '800',
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+    textAlign: 'center',
+    marginTop: 5,
+  },
+  rightPanel: {
+    flex: 0.6,
+    backgroundColor: '#0f172a',
   },
   keyboardView: {
     flex: 1,
   },
   scrollContent: {
     flexGrow: 1,
-  },
-  loadingContainer: {
-    flex: 1,
     justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#021129',
-  },
-  loadingText: {
-    color: '#fff',
-    marginTop: 16,
-    fontSize: 16,
-  },
-  content: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 40,
-    paddingHorizontal: 24,
-    minHeight: Platform.OS === 'web' ? '100%' : undefined,
-  },
-  formWrapper: {
-    width: '100%',
-    maxWidth: 420,
+    paddingHorizontal: 40,
+    paddingVertical: 10, // Dikey boşluk azaltıldı
   },
   formContainer: {
-    backgroundColor: 'rgba(8, 18, 47, 0.85)',
-    borderRadius: 28,
-    paddingVertical: 32,
-    paddingHorizontal: 28,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 12,
-    },
-    shadowOpacity: 0.35,
-    shadowRadius: 24,
-    elevation: 12,
+    maxWidth: 480,
+    width: '100%',
+    alignSelf: 'center',
+  },
+  headerContainer: {
+    marginBottom: 16, // Başlık boşluğu azaltıldı
   },
   welcomeTitle: {
     color: '#fff',
-    fontSize: 26,
+    fontSize: 22, // Font küçültüldü
     fontWeight: '700',
-    lineHeight: 34,
-    textAlign: 'center',
-    marginBottom: 12,
+    marginBottom: 2,
   },
   welcomeSubtitle: {
-    color: '#cbd5f5',
-    fontSize: 15,
-    textAlign: 'center',
-    marginBottom: 20,
+    color: '#64748b',
+    fontSize: 13,
+    marginBottom: 0,
   },
   inputGroup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(13, 26, 66, 0.8)',
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-    marginBottom: 18,
-  },
-  inputIcon: {
-    marginRight: 12,
+    marginBottom: 10, // Boşluk azaltıldı
   },
   input: {
-    flex: 1,
+    backgroundColor: '#1e293b',
+    borderRadius: 8, // Radius azaltıldı
+    height: 42, // Yükseklik 45 -> 42
+    paddingHorizontal: 16,
     color: '#fff',
-    fontSize: 15,
-    padding: 0,
-  },
-  actionsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 24,
-  },
-  rememberMe: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  checkbox: {
-    width: 18,
-    height: 18,
-    borderRadius: 6,
+    fontSize: 13,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.4)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 8,
-    backgroundColor: 'transparent',
-  },
-  checkboxChecked: {
-    backgroundColor: '#0033ab',
-    borderColor: '#0033ab',
-  },
-  rememberMeText: {
-    color: '#cbd5f5',
-    fontSize: 13,
-  },
-  forgotPassword: {
-    color: '#7aa5ff',
-    fontSize: 13,
-    fontWeight: '600',
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   loginButton: {
     backgroundColor: '#0033ab',
-    borderRadius: 16,
-    paddingVertical: 16,
+    borderRadius: 8,
+    height: 42, // Buton yüksekliği input ile eşitlendi
+    justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 8,
     shadowColor: '#0033ab',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 4,
+    marginTop: 8, // Buton üstü boşluk
   },
   loginButtonDisabled: {
     backgroundColor: 'rgba(0, 51, 171, 0.5)',
@@ -432,8 +344,19 @@ const styles = StyleSheet.create({
   },
   loginButtonText: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '700',
-    letterSpacing: 0.4,
+    letterSpacing: 0.5,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#0f172a',
+  },
+  loadingText: {
+    color: '#fff',
+    marginTop: 16,
+    fontSize: 16,
   },
 });

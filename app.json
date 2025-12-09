@@ -1,28 +1,55 @@
 {
   "expo": {
-    "name": "ip-tv",
-    "slug": "ip-tv",
+    "name": "LUMO",
+    "slug": "lumo",
     "version": "1.0.0",
     "orientation": "landscape",
     "icon": "./assets/images/icon.png",
-    "scheme": "iptv",
-    "userInterfaceStyle": "automatic",
+    "scheme": "lumo",
+    "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.lumo.iptv"
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "foregroundImage": "./assets/images/icon.png",
+        "backgroundColor": "#0033ab"
       },
+      "package": "com.lumo.iptv",
+      "versionCode": 1,
+      "useNextNotificationsApi": true,
       "edgeToEdgeEnabled": true,
+      "softwareKeyboardLayoutMode": "pan",
+      "isTV": true,
+      "tvBanner": "./assets/images/tv_banner.png",
+      "usesFeature": [
+        {
+          "name": "android.software.leanback",
+          "required": true
+        },
+        {
+          "name": "android.hardware.touchscreen",
+          "required": false
+        }
+      ],
+      "intentFilters": [
+        {
+          "action": "android.intent.action.MAIN",
+          "category": [
+            "android.intent.category.LEANBACK_LAUNCHER",
+            "android.intent.category.LAUNCHER",
+            "android.intent.category.DEFAULT"
+          ]
+        }
+      ],
       "permissions": [
         "INTERNET",
         "ACCESS_NETWORK_STATE",
-        "WAKE_LOCK"
-      ],
-      "package": "com.anonymous.iptv"
+        "WAKE_LOCK",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -34,10 +61,10 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash-icon.png",
+          "image": "./assets/images/splash.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff"
+          "backgroundColor": "#0033ab"
         }
       ],
       [
@@ -55,10 +82,32 @@
         }
       ],
       "expo-sqlite",
-      "react-native-video"
+      "react-native-video",
+      "./plugins/withAudioBooster",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true,
+            "minSdkVersion": 24,
+            "compileSdkVersion": 35,
+            "targetSdkVersion": 35,
+            "buildToolsVersion": "34.0.0",
+            "kotlinVersion": "2.0.21",
+            "extraProguardRules": "-keep class com.facebook.react.** { *; } -keep class com.nozbe.watermelondb.** { *; } -keep class com.swmansion.reanimated.** { *; }",
+            "newArchEnabled": true
+          }
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": false
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "08e6b6b4-4456-4178-a656-6ce038b05a76"
+      }
     }
   }
 }

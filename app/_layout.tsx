@@ -1,8 +1,9 @@
 import { Stack } from 'expo-router';
 import { StatusBar as ExpoStatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
-import { Platform, StatusBar } from 'react-native';
+import { Platform, StatusBar, AppState } from 'react-native';
 import * as ScreenOrientation from 'expo-screen-orientation';
+import * as NavigationBar from 'expo-navigation-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { useFonts } from 'expo-font';
 import {
@@ -11,7 +12,6 @@ import {
   Outfit_600SemiBold,
   Outfit_700Bold,
 } from '@expo-google-fonts/outfit';
-import AiAssistantModal from '@/components/AiAssistantModal';
 
 SplashScreen.preventAutoHideAsync().catch(() => { });
 
@@ -40,8 +40,20 @@ export default function RootLayout() {
 
             // Android'de navigation bar'ı gizle (immersive mode)
             if (Platform.OS === 'android') {
-              StatusBar.setHidden(true);
-              console.log('✅ Navigation bar hidden');
+              // StatusBar.setHidden(true); // Expo StatusBar kullanıyoruz
+              await NavigationBar.setPositionAsync('absolute');
+              await NavigationBar.setBackgroundColorAsync('#00000000'); // Transparent
+              await NavigationBar.setVisibilityAsync('hidden');
+              await NavigationBar.setBehaviorAsync('overlay-swipe');
+              console.log('✅ Navigation bar hidden (immersive)');
+
+              // AppState değişimlerini dinle ve tekrar gizle (Kullanıcı çıkıp girerse)
+              const subscription = AppState.addEventListener('change', nextAppState => {
+                if (nextAppState === 'active') {
+                  NavigationBar.setVisibilityAsync('hidden');
+                  ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
+                }
+              });
             }
           } catch (err: any) {
             // Activity hatası varsa sessizce geç
@@ -66,8 +78,8 @@ export default function RootLayout() {
           headerShown: false,
         }}
       />
-      <AiAssistantModal />
-      <ExpoStatusBar style="dark" />
+      <ExpoStatusBar style="dark" hidden={true} />
     </>
   );
 }
+

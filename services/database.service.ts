@@ -5,6 +5,8 @@ import WatchHistory from './database/models/WatchHistory';
 import ContinueWatching from './database/models/ContinueWatching';
 import EpisodeProgress from './database/models/EpisodeProgress';
 import MovieModel from './database/models/Movie';
+import Channel from './database/models/Channel';
+import SeriesModel from './database/models/Series';
 
 export interface FavoriteItem {
   id: string;
@@ -596,6 +598,28 @@ class DatabaseService {
     } catch (error) {
       console.error('Search movies error:', error);
       return [];
+    }
+  }
+
+  /**
+   * İçerik sayılarını getir
+   */
+  async getCounts(): Promise<{ channels: number; movies: number; series: number }> {
+    if (!database) return { channels: 0, movies: 0, series: 0 };
+
+    try {
+      const channelsCount = await database.get<Channel>('channels').query().fetchCount();
+      const moviesCount = await database.get<MovieModel>('movies').query().fetchCount();
+      const seriesCount = await database.get<SeriesModel>('series').query().fetchCount();
+
+      return {
+        channels: channelsCount,
+        movies: moviesCount,
+        series: seriesCount,
+      };
+    } catch (error) {
+      console.error('Error fetching counts:', error);
+      return { channels: 0, movies: 0, series: 0 };
     }
   }
 }

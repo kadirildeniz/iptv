@@ -1,6 +1,6 @@
-import { Image, ImageSourcePropType, StyleProp, StyleSheet, Text, TouchableOpacity, View, ViewStyle, Animated, useWindowDimensions } from 'react-native';
+import { Image, ImageSourcePropType, StyleProp, StyleSheet, Text, Pressable, View, ViewStyle, Animated, useWindowDimensions, findNodeHandle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { getDeviceType, getResponsiveFontSize } from '@/utils/responsive';
 
 interface CardComponentProps {
@@ -10,9 +10,22 @@ interface CardComponentProps {
   style?: StyleProp<ViewStyle>;
   onUpdatePress?: () => void;
   isUpdating?: boolean;
+  isUpdateFocused?: boolean;
+  onUpdateFocus?: () => void;
+  onUpdateBlur?: () => void;
 }
 
-const CardComponent = ({ title, description, image, style, onUpdatePress, isUpdating }: CardComponentProps) => {
+const CardComponent = ({
+  title,
+  description,
+  image,
+  style,
+  onUpdatePress,
+  isUpdating,
+  isUpdateFocused,
+  onUpdateFocus,
+  onUpdateBlur
+}: CardComponentProps) => {
   const rotateAnim = useRef(new Animated.Value(0)).current;
   const { width } = useWindowDimensions();
   const deviceType = getDeviceType(width);
@@ -47,11 +60,18 @@ const CardComponent = ({ title, description, image, style, onUpdatePress, isUpda
   return (
     <View style={[styles.cardContainer, { padding: cardPadding, paddingTop: cardPaddingTop }, style]}>
       {onUpdatePress && (
-        <TouchableOpacity
-          style={styles.updateButton}
+        <Pressable
+          isTVSelectable={true}
+          focusable={true}
+          android_tv_focusable={true}
+          onFocus={onUpdateFocus}
+          onBlur={onUpdateBlur}
+          style={[
+            styles.updateButton,
+            isUpdateFocused && styles.updateButtonFocused
+          ]}
           onPress={onUpdatePress}
           disabled={isUpdating}
-          activeOpacity={0.7}
         >
           <Animated.View style={{ transform: [{ rotate: rotation }] }}>
             <Ionicons
@@ -60,7 +80,7 @@ const CardComponent = ({ title, description, image, style, onUpdatePress, isUpda
               color="#fff"
             />
           </Animated.View>
-        </TouchableOpacity>
+        </Pressable>
       )}
       <Image source={image} style={[styles.cardImage, { width: iconSize, height: iconSize }]} />
       <Text style={[styles.cardTitle, { fontSize: titleFontSize }]}>{title}</Text>
@@ -88,9 +108,20 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(99, 102, 241, 0.9)',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
+    borderWidth: 2,
+    borderColor: 'transparent',
     zIndex: 10,
+  },
+  updateButtonFocused: {
+    borderColor: '#00E5FF',
+    borderWidth: 2,
+    transform: [{ scale: 1.15 }],
+    backgroundColor: 'rgba(99, 102, 241, 1)',
+    shadowColor: '#00E5FF',
+    shadowOpacity: 0.6,
+    shadowRadius: 5,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 5,
   },
   cardTitle: {
     fontWeight: '700',

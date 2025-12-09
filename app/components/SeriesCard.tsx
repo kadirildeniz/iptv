@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, Image, StyleSheet, TouchableOpacity } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, Image, StyleSheet, Pressable, StyleProp, ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts } from '@/theme/fonts';
 
@@ -13,6 +13,9 @@ interface SeriesCardProps {
   isFavorite?: boolean;
   onPress?: (id: string) => void;
   onFavoritePress?: (id: string) => void;
+  height?: number;
+  width?: number;
+  style?: StyleProp<ViewStyle>;
 }
 
 const SeriesCard: React.FC<SeriesCardProps> = ({
@@ -25,7 +28,13 @@ const SeriesCard: React.FC<SeriesCardProps> = ({
   isFavorite = false,
   onPress,
   onFavoritePress,
+  height = 200,
+  width,
+  style,
 }) => {
+  const [cardFocused, setCardFocused] = useState(false);
+  const [favFocused, setFavFocused] = useState(false);
+
   const handlePress = () => {
     if (onPress) {
       onPress(id);
@@ -40,28 +49,44 @@ const SeriesCard: React.FC<SeriesCardProps> = ({
   };
 
   return (
-    <TouchableOpacity
-      style={styles.card}
+    <Pressable
+      isTVSelectable={true}
+      focusable={true}
+      android_tv_focusable={true}
+      onFocus={() => setCardFocused(true)}
+      onBlur={() => setCardFocused(false)}
+      style={[
+        styles.card,
+        width ? { width } : undefined,
+        style,
+        cardFocused && styles.cardFocused
+      ]}
       onPress={handlePress}
-      activeOpacity={0.8}
     >
       <Image
         source={{ uri: image }}
-        style={styles.seriesImage}
+        style={[styles.seriesImage, height ? { height } : undefined]}
         resizeMode="cover"
       />
       {onFavoritePress && (
-        <TouchableOpacity
-          style={styles.favoriteButton}
+        <Pressable
+          isTVSelectable={true}
+          focusable={true}
+          android_tv_focusable={true}
+          onFocus={() => setFavFocused(true)}
+          onBlur={() => setFavFocused(false)}
+          style={[
+            styles.favoriteButton,
+            favFocused && styles.favoriteFocused
+          ]}
           onPress={handleFavoritePress}
-          activeOpacity={0.8}
         >
           <Ionicons
             name={isFavorite ? 'heart' : 'heart-outline'}
             size={20}
             color={isFavorite ? '#f97316' : '#ffffff'}
           />
-        </TouchableOpacity>
+        </Pressable>
       )}
       <View style={styles.seriesInfo}>
         <Text style={styles.seriesTitle} numberOfLines={2}>
@@ -72,7 +97,7 @@ const SeriesCard: React.FC<SeriesCardProps> = ({
           <Text style={styles.seriesSeasons}>{seasons} Sezon</Text>
         ) : null}
       </View>
-    </TouchableOpacity>
+    </Pressable>
   );
 };
 
@@ -88,6 +113,13 @@ const styles = StyleSheet.create({
     elevation: 3,
     marginBottom: 16,
     position: 'relative',
+    borderWidth: 3,
+    borderColor: 'transparent',
+  },
+  cardFocused: {
+    borderColor: '#00E5FF',
+    borderWidth: 3,
+    transform: [{ scale: 1.05 }],
   },
   seriesImage: {
     width: '100%',
@@ -105,6 +137,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 10,
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  favoriteFocused: {
+    borderColor: '#00E5FF',
+    borderWidth: 2,
+    transform: [{ scale: 1.15 }],
   },
   seriesInfo: {
     padding: 12,

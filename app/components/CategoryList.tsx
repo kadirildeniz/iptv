@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { View, Text, Pressable, TouchableOpacity, StyleSheet, Platform, ViewStyle, StyleProp, FlatList } from 'react-native';
+import { View, Text, Pressable, StyleSheet, Platform, ViewStyle, StyleProp, FlatList } from 'react-native';
 import { fonts } from '@/theme/fonts';
+import { TV_FOCUS_STYLE, TV_BASE_BORDER } from '@/constants/tvStyles';
 
 interface Category {
   id: string;
@@ -41,7 +42,7 @@ const CategoryList: React.FC<CategoryListProps> = ({
     containerStyle,
   ];
 
-  const renderSidebarItem = ({ item }: { item: Category }) => {
+  const renderSidebarItem = ({ item, index }: { item: Category; index: number }) => {
     const isSelected = selectedCategory === item.id;
     const isHovered = hoveredId === item.id;
     return (
@@ -53,7 +54,12 @@ const CategoryList: React.FC<CategoryListProps> = ({
         onPress={() => onCategorySelect(item.id)}
         onHoverIn={() => setHoveredId(item.id)}
         onHoverOut={() => setHoveredId(null)}
+        onFocus={() => setHoveredId(item.id)}
+        onBlur={() => setHoveredId(null)}
         android_ripple={{ color: 'rgba(0, 51, 171, 0.25)', borderless: false }}
+        isTVSelectable={true}
+        focusable={true}
+        android_tv_focusable={true}
       >
         <Text
           style={[
@@ -70,10 +76,12 @@ const CategoryList: React.FC<CategoryListProps> = ({
   const renderChipItem = ({ item }: { item: Category }) => {
     const isSelected = selectedCategory === item.id;
     return (
-      <TouchableOpacity
-        style={[
+      <Pressable
+        focusable={true}
+        style={({ pressed, focused }) => [
           styles.chip,
           isSelected && styles.chipSelected,
+          focused && TV_FOCUS_STYLE
         ]}
         onPress={() => onCategorySelect(item.id)}
       >
@@ -85,7 +93,7 @@ const CategoryList: React.FC<CategoryListProps> = ({
         >
           {item.name}
         </Text>
-      </TouchableOpacity>
+      </Pressable>
     );
   };
 
@@ -126,15 +134,15 @@ const CategoryList: React.FC<CategoryListProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: 'transparent',
-    padding: 1,
+    padding: 0,
     borderRadius: 16,
     borderWidth: 0,
     flex: 1,
     flexShrink: 0,
-    minWidth: 100,
+    minWidth: 200,
+    maxWidth: 300,
     alignSelf: 'stretch',
-    gap: 4,
+    gap: 0,
   },
   chipsContainer: {
     width: '100%',
@@ -152,7 +160,6 @@ const styles = StyleSheet.create({
     zIndex: 1001,
     width: 50,
     height: 50,
-    backgroundColor: 'rgba(13, 27, 42, 0.9)',
     borderRadius: 25,
     justifyContent: 'center',
     alignItems: 'center',
@@ -172,7 +179,7 @@ const styles = StyleSheet.create({
   },
   title: {
     color: '#f87171',
-    fontSize: 12,
+    fontSize: 16,
     fontFamily: fonts.bold,
     letterSpacing: 0.4,
     textAlign: 'center',
@@ -180,7 +187,7 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     color: '#f87171',
-    fontSize: 11,
+    fontSize: 14,
     letterSpacing: 0.6,
     textTransform: 'uppercase',
     fontFamily: fonts.bold,
@@ -195,14 +202,11 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 14,
     borderRadius: 18,
-    backgroundColor: 'rgba(13, 27, 42, 0.6)',
-    borderWidth: 1,
-    borderColor: 'rgba(30, 144, 255, 0.3)',
     marginRight: 8,
   },
   chipSelected: {
-    backgroundColor: 'rgba(30, 144, 255, 0.2)',
-    borderColor: 'rgba(30, 144, 255, 0.6)',
+
+
   },
   chipText: {
     color: '#e5e7eb',
@@ -210,7 +214,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.semibold,
   },
   chipTextSelected: {
-    color: '#93c5fd',
+
     fontFamily: fonts.bold,
   },
   scrollView: {
@@ -221,24 +225,23 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   sidebarSeparator: {
-    height: 6,
+    height: 2,
   },
   categoryItem: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 14,
-    borderWidth: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 2,
     borderColor: 'transparent',
-    backgroundColor: 'rgba(15, 23, 42, 0.45)',
   },
   categoryItemActive: {
-    backgroundColor: '#0033ab',
-    borderColor: '#0033ab',
+    backgroundColor: '#1d4ed8',
+    borderColor: '#00E5FF',
   },
   categoryText: {
     color: '#f1f5f9',
-    fontSize: 12.5,
-    letterSpacing: 0.15,
+    fontSize: 13,
+    letterSpacing: 0.1,
     fontFamily: fonts.medium,
   },
   categoryTextActive: {

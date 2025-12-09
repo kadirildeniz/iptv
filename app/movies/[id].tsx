@@ -9,6 +9,7 @@ import {
   Platform,
   SafeAreaView,
   TouchableOpacity,
+  Pressable,
   FlatList,
   TextInput,
   Modal,
@@ -38,6 +39,11 @@ const MovieDetail: React.FC = () => {
   const [trailerKey, setTrailerKey] = useState<string | null>(null);
   const [isTrailerVisible, setIsTrailerVisible] = useState(false);
   const [loadingTrailer, setLoadingTrailer] = useState(false);
+  // TV Focus States
+  const [backFocused, setBackFocused] = useState(false);
+  const [favFocused, setFavFocused] = useState(false);
+  const [playFocused, setPlayFocused] = useState(false);
+  const [trailerFocused, setTrailerFocused] = useState(false);
 
   useEffect(() => {
     if (id) {
@@ -397,16 +403,31 @@ const MovieDetail: React.FC = () => {
           <View style={styles.heroOverlay} />
 
           <View style={styles.heroContent}>
-            <TouchableOpacity
-              style={styles.heroBackButton}
+            <Pressable
+              isTVSelectable={true}
+              focusable={true}
+              android_tv_focusable={true}
+              hasTVPreferredFocus={true}
+              onFocus={() => setBackFocused(true)}
+              onBlur={() => setBackFocused(false)}
+              style={[
+                styles.heroBackButton,
+                backFocused && styles.buttonFocused
+              ]}
               onPress={() => router.back()}
-              activeOpacity={0.85}
             >
               <Ionicons name="chevron-back" size={22} color="#ffffff" />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.heroFavoriteButton}
-              activeOpacity={0.85}
+            </Pressable>
+            <Pressable
+              isTVSelectable={true}
+              focusable={true}
+              android_tv_focusable={true}
+              onFocus={() => setFavFocused(true)}
+              onBlur={() => setFavFocused(false)}
+              style={[
+                styles.heroFavoriteButton,
+                favFocused && styles.buttonFocused
+              ]}
               onPress={handleToggleFavorite}
             >
               <Ionicons
@@ -414,7 +435,7 @@ const MovieDetail: React.FC = () => {
                 size={22}
                 color={isFavorite ? '#f97316' : '#f97316'}
               />
-            </TouchableOpacity>
+            </Pressable>
 
             <View style={styles.heroInfo}>
               <View style={styles.heroHeader}>
@@ -426,9 +447,17 @@ const MovieDetail: React.FC = () => {
               </Text>
 
               <View style={styles.heroActions}>
-                <TouchableOpacity
-                  style={[styles.playButton, !movie.streamUrl && styles.playButtonDisabled]}
-                  activeOpacity={0.9}
+                <Pressable
+                  isTVSelectable={true}
+                  focusable={true}
+                  android_tv_focusable={true}
+                  onFocus={() => setPlayFocused(true)}
+                  onBlur={() => setPlayFocused(false)}
+                  style={[
+                    styles.playButton,
+                    !movie.streamUrl && styles.playButtonDisabled,
+                    playFocused && styles.buttonFocused
+                  ]}
                   disabled={!movie.streamUrl}
                   onPress={() => {
                     if (movie.streamUrl) {
@@ -447,7 +476,7 @@ const MovieDetail: React.FC = () => {
                 >
                   <Ionicons name="play" size={18} color="#ffffff" style={{ marginRight: 8 }} />
                   <Text style={styles.playButtonText}>Oynat</Text>
-                </TouchableOpacity>
+                </Pressable>
                 {ratingValue && (
                   <View style={styles.ratingBadge}>
                     <Ionicons name="star" size={16} color="#0f172a" style={{ marginRight: 6 }} />
@@ -455,9 +484,17 @@ const MovieDetail: React.FC = () => {
                   </View>
                 )}
 
-                <TouchableOpacity
-                  style={[styles.trailerButton, loadingTrailer && styles.trailerButtonDisabled]}
-                  activeOpacity={0.9}
+                <Pressable
+                  isTVSelectable={true}
+                  focusable={true}
+                  android_tv_focusable={true}
+                  onFocus={() => setTrailerFocused(true)}
+                  onBlur={() => setTrailerFocused(false)}
+                  style={[
+                    styles.trailerButton,
+                    loadingTrailer && styles.trailerButtonDisabled,
+                    trailerFocused && styles.buttonFocused
+                  ]}
                   onPress={handleWatchTrailer}
                   disabled={loadingTrailer}
                 >
@@ -469,7 +506,7 @@ const MovieDetail: React.FC = () => {
                   <Text style={styles.trailerButtonText}>
                     {loadingTrailer ? 'Aranıyor...' : 'Fragman İzle'}
                   </Text>
-                </TouchableOpacity>
+                </Pressable>
               </View>
             </View>
           </View>
@@ -646,6 +683,11 @@ const styles = StyleSheet.create({
     padding: 10,
     borderWidth: 1,
     borderColor: 'rgba(249, 115, 22, 0.3)',
+  },
+  buttonFocused: {
+    borderColor: '#00E5FF',
+    borderWidth: 3,
+    transform: [{ scale: 1.08 }],
   },
   heroInfo: {
     flex: 1,
