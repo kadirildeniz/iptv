@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, Image, StyleSheet, Pressable, StyleProp, ViewStyle } from 'react-native';
+import { View, Text, Image, StyleSheet, Pressable, StyleProp, ViewStyle, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts } from '@/theme/fonts';
 
@@ -48,36 +48,38 @@ const SeriesCard: React.FC<SeriesCardProps> = ({
     }
   };
 
+  const isTV = Platform.isTV;
+
   return (
     <Pressable
-      isTVSelectable={true}
-      focusable={true}
-      android_tv_focusable={true}
-      onFocus={() => setCardFocused(true)}
-      onBlur={() => setCardFocused(false)}
+      isTVSelectable={isTV}
+      focusable={isTV}
+      android_tv_focusable={isTV}
+      onFocus={isTV ? () => setCardFocused(true) : undefined}
+      onBlur={isTV ? () => setCardFocused(false) : undefined}
       style={[
         styles.card,
         width ? { width } : undefined,
         style,
-        cardFocused && styles.cardFocused
+        isTV && cardFocused && styles.cardFocused
       ]}
       onPress={handlePress}
     >
       <Image
         source={{ uri: image }}
-        style={[styles.seriesImage, height ? { height } : undefined]}
+        style={[styles.seriesImage, { height: height }]}
         resizeMode="cover"
       />
       {onFavoritePress && (
         <Pressable
-          isTVSelectable={true}
-          focusable={true}
-          android_tv_focusable={true}
-          onFocus={() => setFavFocused(true)}
-          onBlur={() => setFavFocused(false)}
+          isTVSelectable={isTV}
+          focusable={isTV}
+          android_tv_focusable={isTV}
+          onFocus={isTV ? () => setFavFocused(true) : undefined}
+          onBlur={isTV ? () => setFavFocused(false) : undefined}
           style={[
             styles.favoriteButton,
-            favFocused && styles.favoriteFocused
+            isTV && favFocused && styles.favoriteFocused
           ]}
           onPress={handleFavoritePress}
         >
@@ -89,13 +91,10 @@ const SeriesCard: React.FC<SeriesCardProps> = ({
         </Pressable>
       )}
       <View style={styles.seriesInfo}>
-        <Text style={styles.seriesTitle} numberOfLines={2}>
+        <Text style={styles.seriesTitle} numberOfLines={1}>
           {title}
         </Text>
-        {year ? <Text style={styles.seriesYear}>{year}</Text> : null}
-        {seasons !== undefined && seasons > 0 ? (
-          <Text style={styles.seriesSeasons}>{seasons} Sezon</Text>
-        ) : null}
+        {year ? <Text style={styles.seriesYear} numberOfLines={1}>{year}</Text> : null}
       </View>
     </Pressable>
   );
@@ -146,23 +145,23 @@ const styles = StyleSheet.create({
     transform: [{ scale: 1.15 }],
   },
   seriesInfo: {
-    padding: 12,
+    padding: 6,
     backgroundColor: '#ffffff',
+    height: 42,
+    overflow: 'hidden',
   },
   seriesTitle: {
-    fontSize: 14,
+    fontSize: 11,
     color: '#000000',
-    marginBottom: 4,
     fontFamily: fonts.semibold,
   },
   seriesYear: {
-    fontSize: 14,
+    fontSize: 10,
     color: '#666666',
-    marginBottom: 2,
     fontFamily: fonts.regular,
   },
   seriesSeasons: {
-    fontSize: 12,
+    fontSize: 10,
     color: '#999999',
     fontFamily: fonts.regular,
   },

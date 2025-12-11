@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, Pressable, StyleSheet, Image, GestureResponderEvent } from 'react-native';
+import { View, Text, Pressable, StyleSheet, Image, GestureResponderEvent, Platform } from 'react-native';
 import { fonts } from '@/theme/fonts';
 import { TV_FOCUS_STYLE, TV_BASE_BORDER } from '@/constants/tvStyles';
 
@@ -36,6 +36,7 @@ const ChannelCard: React.FC<ChannelCardProps> = ({
   const [cardFocused, setCardFocused] = useState(false);
   const [favoriteFocused, setFavoriteFocused] = useState(false);
   const isGrid = variant === 'grid';
+  const isTV = Platform.isTV;
 
   const handleCardPress = () => {
     if (onChannelSelect) {
@@ -58,15 +59,15 @@ const ChannelCard: React.FC<ChannelCardProps> = ({
   if (isGrid) {
     return (
       <Pressable
-        isTVSelectable={true}
-        focusable={true}
-        android_tv_focusable={true}
-        onFocus={() => setCardFocused(true)}
-        onBlur={() => setCardFocused(false)}
+        isTVSelectable={isTV}
+        focusable={isTV}
+        android_tv_focusable={isTV}
+        onFocus={isTV ? () => setCardFocused(true) : undefined}
+        onBlur={isTV ? () => setCardFocused(false) : undefined}
         style={[
           styles.gridCard,
           style,
-          cardFocused && styles.cardFocused
+          isTV && cardFocused && styles.cardFocused
         ]}
         onPress={handleCardPress}
       >
@@ -83,15 +84,15 @@ const ChannelCard: React.FC<ChannelCardProps> = ({
           )}
 
           <Pressable
-            isTVSelectable={true}
-            focusable={true}
-            android_tv_focusable={true}
-            onFocus={() => setFavoriteFocused(true)}
-            onBlur={() => setFavoriteFocused(false)}
+            isTVSelectable={isTV}
+            focusable={isTV}
+            android_tv_focusable={isTV}
+            onFocus={isTV ? () => setFavoriteFocused(true) : undefined}
+            onBlur={isTV ? () => setFavoriteFocused(false) : undefined}
             style={[
               styles.gridFavoriteButton,
               isFavorite && styles.gridFavoriteButtonActive,
-              favoriteFocused && styles.favoriteFocused
+              isTV && favoriteFocused && styles.favoriteFocused
             ]}
             onPress={handleFavoritePress}
           >

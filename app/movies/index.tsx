@@ -1,10 +1,10 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { View, StyleSheet, Platform, ActivityIndicator, useWindowDimensions, TouchableOpacity, Text, Image, Modal, Pressable } from 'react-native';
+import { View, StyleSheet, Platform, ActivityIndicator, useWindowDimensions, TouchableOpacity, Text, Image, Modal, Pressable, ImageBackground } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useRouter, Redirect, useFocusEffect } from 'expo-router';
 import * as ScreenOrientation from 'expo-screen-orientation';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Bileşenler
 import CategoryList from '@/app/components/CategoryList';
@@ -153,17 +153,18 @@ const Movies: React.FC = () => {
   };
 
   // --- Grid Hesaplama ---
+  const isTV = Platform.isTV;
   const deviceType = width < 768 ? 'mobile' : 'tablet';
   const SIDEBAR_WIDTH = deviceType === 'mobile' ? 0 : 260; // Sabit Sidebar
   const LIST_PADDING = 16;
   const availableWidth = width - SIDEBAR_WIDTH - (LIST_PADDING * 2);
 
-  const numColumns = 4; // Her zaman 4 sütun
+  const numColumns = isTV ? 5 : 4; // TV'de 5 sütun, diğerlerinde 4 sütun
   const GAP = 12;
 
-  // Kart Genişliği Hesaplama
+  // Kart Genişliği Hesaplama - sabit oran ile
   const cardWidth = (availableWidth - ((numColumns - 1) * GAP)) / numColumns;
-  const cardHeight = cardWidth * 1.5; // Film Posteri Oranı (2:3)
+  const cardHeight = cardWidth * 1.5; // Film Posteri Oranı (2:3 = 0.67 aspect ratio)
 
   const handleToggleFavorite = async (movieId: string) => {
     const movie = movies.find(m => m.stream_id.toString() === movieId);
@@ -206,101 +207,106 @@ const Movies: React.FC = () => {
   if (loading) return <View style={styles.center}><ActivityIndicator size="large" color="#fff" /></View>;
 
   return (
-    <View style={styles.container}>
-      <Stack.Screen options={{ headerShown: false }} />
+    <SafeAreaView style={styles.safeAreaContainer} edges={['bottom']}>
+      <View style={styles.container}>
+        <Stack.Screen options={{ headerShown: false }} />
 
-      {/* SIDEBAR (Yerel Stiller Kullanılıyor) */}
-      {deviceType !== 'mobile' && (
-        <View style={[styles.sidebar, { width: SIDEBAR_WIDTH }]}>
-          <View style={styles.sidebarHeader}>
-            <Image source={require('../../assets/images/splash.png')} style={styles.sidebarLogo} resizeMode="contain" />
-            <Pressable
-              style={[
-                styles.backButton,
-                backButtonFocused && styles.backButtonFocused
-              ]}
-              onPress={() => router.back()}
-              isTVSelectable={true}
-              focusable={true}
-              android_tv_focusable={true}
-              hasTVPreferredFocus={true}
-              onFocus={() => setBackButtonFocused(true)}
-              onBlur={() => setBackButtonFocused(false)}
-            >
-              <Ionicons name="arrow-back" size={20} color="#fff" />
-              <Text style={styles.backText}>GERİ DÖN</Text>
-            </Pressable>
-          </View>
+        {/* SIDEBAR (Yerel Stiller Kullanılıyor) */}
+        {deviceType !== 'mobile' && (
+          <View style={[styles.sidebar, { width: SIDEBAR_WIDTH }]}>
+            <View style={styles.sidebarHeader}>
+              <Pressable
+                style={[
+                  styles.backButton,
+                  isTV && backButtonFocused && styles.backButtonFocused
+                ]}
+                onPress={() => router.back()}
+                isTVSelectable={isTV}
+                focusable={isTV}
+                android_tv_focusable={isTV}
+                hasTVPreferredFocus={isTV}
+                onFocus={isTV ? () => setBackButtonFocused(true) : undefined}
+                onBlur={isTV ? () => setBackButtonFocused(false) : undefined}
+              >
+                <Ionicons name="arrow-back" size={20} color="#fff" />
+                <Text style={styles.backText}>GERİ DÖN</Text>
+              </Pressable>
+            </View>
 
-          <CategoryList
-            categories={categories}
-            selectedCategory={selectedCategory}
-            onCategorySelect={(id) => setSelectedCategory(id)}
-            layoutMode="sidebar"
-            containerStyle={{ flex: 1, width: '100%' }}
-          />
-        </View>
-      )}
-
-      {/* SAĞ İÇERİK */}
-      <View style={styles.mainContent}>
-
-        {/* Mobilde Hamburger Menü */}
-        {deviceType === 'mobile' && (
-          <View style={styles.mobileHeader}>
-            <TouchableOpacity onPress={() => setIsCategoryModalVisible(true)}>
-              <Ionicons name="menu" size={28} color="#fff" />
-            </TouchableOpacity>
-            <Text style={styles.mobileTitle}>Filmler</Text>
-          </View>
-        )}
-
-        <SearchHeader
-          title="Filmler"
-          onSearch={setSearchQuery}
-          placeholder="Film ara..."
-          itemCount={filteredMovies.length}
-          itemLabel="film"
-        />
-
-        {loadingMovies ? (
-          <View style={styles.center}><ActivityIndicator size="large" color="#fff" /></View>
-        ) : (
-          <View style={{ flex: 1, paddingHorizontal: LIST_PADDING, paddingTop: 10 }}>
-            <FlashList
-              data={filteredMovies}
-              renderItem={renderMovie}
-              keyExtractor={item => item.stream_id.toString()}
-              numColumns={numColumns}
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={{ paddingBottom: 20 }}
-            />
-          </View>
-        )}
-      </View>
-
-      {/* Mobile Modal */}
-      <Modal visible={isCategoryModalVisible} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <TouchableOpacity style={styles.closeButton} onPress={() => setIsCategoryModalVisible(false)}>
-              <Ionicons name="close" size={24} color="#fff" />
-            </TouchableOpacity>
             <CategoryList
               categories={categories}
               selectedCategory={selectedCategory}
-              onCategorySelect={(id) => { setSelectedCategory(id); setIsCategoryModalVisible(false); }}
+              onCategorySelect={(id) => setSelectedCategory(id)}
               layoutMode="sidebar"
+              containerStyle={{ flex: 1, width: '100%' }}
             />
           </View>
-        </View>
-      </Modal>
+        )}
 
-    </View>
+        {/* SAĞ İÇERİK */}
+        <View style={styles.mainContent}>
+
+          {/* Mobilde Hamburger Menü */}
+          {deviceType === 'mobile' && (
+            <View style={styles.mobileHeader}>
+              <TouchableOpacity onPress={() => setIsCategoryModalVisible(true)}>
+                <Ionicons name="menu" size={28} color="#fff" />
+              </TouchableOpacity>
+              <Text style={styles.mobileTitle}>Filmler</Text>
+            </View>
+          )}
+
+          <SearchHeader
+            title="Filmler"
+            onSearch={setSearchQuery}
+            placeholder="Film ara..."
+            itemCount={filteredMovies.length}
+            itemLabel="film"
+          />
+
+          {loadingMovies ? (
+            <View style={styles.center}><ActivityIndicator size="large" color="#fff" /></View>
+          ) : (
+            <View style={{ flex: 1, paddingHorizontal: LIST_PADDING, paddingTop: 10 }}>
+              <FlashList
+                data={filteredMovies}
+                renderItem={renderMovie}
+                keyExtractor={item => item.stream_id.toString()}
+                numColumns={numColumns}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{ paddingBottom: 20, paddingTop: 8, paddingLeft: 8 }}
+              />
+            </View>
+          )}
+        </View>
+
+        {/* Mobile Modal */}
+        <Modal visible={isCategoryModalVisible} transparent animationType="slide">
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <TouchableOpacity style={styles.closeButton} onPress={() => setIsCategoryModalVisible(false)}>
+                <Ionicons name="close" size={24} color="#fff" />
+              </TouchableOpacity>
+              <CategoryList
+                categories={categories}
+                selectedCategory={selectedCategory}
+                onCategorySelect={(id) => { setSelectedCategory(id); setIsCategoryModalVisible(false); }}
+                layoutMode="sidebar"
+              />
+            </View>
+          </View>
+        </Modal>
+
+      </View>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
+  safeAreaContainer: {
+    flex: 1,
+    backgroundColor: '#0033ab',
+  },
   container: {
     flex: 1,
     flexDirection: 'row', // Yan yana dizilim
@@ -314,7 +320,7 @@ const styles = StyleSheet.create({
   },
   // SOL MENÜ STİLLERİ (BURAYA EKLENDİ)
   sidebar: {
-    backgroundColor: '#020617', // Sidebar arkaplanı
+    backgroundColor: '#1a365d', // Sidebar arkaplanı (daha açık)
     borderRightWidth: 1,
     borderRightColor: 'rgba(255,255,255,0.1)',
     paddingVertical: 20,

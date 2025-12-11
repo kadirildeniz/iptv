@@ -1,5 +1,5 @@
 import React, { memo, useState } from 'react';
-import { View, Text, Image, StyleSheet, Pressable } from 'react-native';
+import { View, Text, Image, StyleSheet, Pressable, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts } from '@/theme/fonts';
 import { TV_FOCUS_STYLE, TV_BASE_BORDER } from '@/constants/tvStyles';
@@ -71,19 +71,21 @@ const MovieCard: React.FC<MovieCardProps> = ({
 
   const displayRating = formatRating();
 
+  const isTV = Platform.isTV;
+
   return (
     <Pressable
-      isTVSelectable={true}
-      focusable={true}
-      android_tv_focusable={true}
-      onFocus={() => setIsCardFocused(true)}
-      onBlur={() => setIsCardFocused(false)}
+      isTVSelectable={isTV}
+      focusable={isTV}
+      android_tv_focusable={isTV}
+      onFocus={isTV ? () => setIsCardFocused(true) : undefined}
+      onBlur={isTV ? () => setIsCardFocused(false) : undefined}
       style={[
         styles.card,
         TV_BASE_BORDER,
         width ? { width } : undefined,
         style,
-        isCardFocused && TV_FOCUS_STYLE
+        isTV && isCardFocused && TV_FOCUS_STYLE
       ]}
       onPress={handlePress}
     >
@@ -96,12 +98,12 @@ const MovieCard: React.FC<MovieCardProps> = ({
         <View style={styles.overlay}>
           {onFavoritePress && (
             <Pressable
-              focusable={true}
-              onFocus={() => setIsFavFocused(true)}
-              onBlur={() => setIsFavFocused(false)}
+              focusable={isTV}
+              onFocus={isTV ? () => setIsFavFocused(true) : undefined}
+              onBlur={isTV ? () => setIsFavFocused(false) : undefined}
               style={[
                 styles.favoriteButton,
-                isFavFocused && {
+                isTV && isFavFocused && {
                   borderColor: '#00E5FF',
                   borderWidth: 2,
                   transform: [{ scale: 1.1 }],
@@ -126,10 +128,10 @@ const MovieCard: React.FC<MovieCardProps> = ({
       </View>
 
       <View style={styles.movieInfo}>
-        <Text style={styles.movieTitle} numberOfLines={2}>
+        <Text style={styles.movieTitle} numberOfLines={1}>
           {title}
         </Text>
-        <Text style={styles.movieYear}>{year}</Text>
+        <Text style={styles.movieYear} numberOfLines={1}>{year}</Text>
       </View>
     </Pressable>
   );
@@ -187,14 +189,14 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bold,
   },
   movieInfo: {
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    padding: 6,
     backgroundColor: '#ffffff',
+    height: 42,
+    overflow: 'hidden',
   },
   movieTitle: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#000000',
-    marginBottom: 4,
     fontFamily: fonts.semibold,
   },
   movieYear: {

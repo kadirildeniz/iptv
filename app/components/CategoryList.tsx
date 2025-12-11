@@ -228,9 +228,9 @@ const styles = StyleSheet.create({
     height: 2,
   },
   categoryItem: {
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 10,
     borderWidth: 2,
     borderColor: 'transparent',
   },

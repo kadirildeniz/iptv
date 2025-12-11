@@ -13,6 +13,7 @@ import {
     Platform,
     Dimensions,
     Animated,
+    Pressable,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -34,6 +35,11 @@ const AiAssistantModal = () => {
         },
     ]);
     const [isLoggedIn, setIsLoggedIn] = useState(false);
+    const [fabFocused, setFabFocused] = useState(false);
+    const [inputFocused, setInputFocused] = useState(false);
+    const [sendFocused, setSendFocused] = useState(false);
+    const isTV = Platform.isTV;
+    const inputRef = useRef<any>(null);
 
     const slideAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
 
@@ -179,14 +185,20 @@ const AiAssistantModal = () => {
     return (
         <>
             {isLoggedIn && (
-                <TouchableOpacity
-                    style={styles.fab}
+                <Pressable
+                    style={[
+                        styles.fab,
+                        isTV && fabFocused && styles.fabFocused
+                    ]}
                     onPress={() => setVisible(true)}
-                    activeOpacity={0.8}
+                    focusable={isTV}
+                    isTVSelectable={isTV}
+                    onFocus={isTV ? () => setFabFocused(true) : undefined}
+                    onBlur={isTV ? () => setFabFocused(false) : undefined}
                 >
                     <Ionicons name="sparkles" size={24} color="#fff" />
                     <Text style={styles.fabText}>Film & Dizi Bul</Text>
-                </TouchableOpacity>
+                </Pressable>
             )}
 
             <Modal
@@ -239,21 +251,42 @@ const AiAssistantModal = () => {
                             style={{ width: '100%' }}
                         >
                             <View style={[styles.inputContainer, { paddingBottom: Platform.OS === 'ios' ? 40 : 20 }]}>
-                                <TextInput
-                                    style={styles.input}
-                                    placeholder="Ne izlemek istersin?"
-                                    placeholderTextColor="#94a3b8"
-                                    value={inputText}
-                                    onChangeText={setInputText}
-                                    onSubmitEditing={handleSend}
-                                />
-                                <TouchableOpacity
-                                    style={[styles.sendButton, !inputText.trim() && styles.sendButtonDisabled]}
+                                <Pressable
+                                    style={[styles.inputWrapper, isTV && inputFocused && styles.inputWrapperFocused]}
+                                    onPress={() => inputRef.current?.focus()}
+                                    focusable={isTV}
+                                    isTVSelectable={isTV}
+                                    hasTVPreferredFocus={isTV && visible}
+                                    onFocus={isTV ? () => {
+                                        setInputFocused(true);
+                                        inputRef.current?.focus();
+                                    } : undefined}
+                                    onBlur={isTV ? () => setInputFocused(false) : undefined}
+                                >
+                                    <TextInput
+                                        ref={inputRef}
+                                        style={styles.input}
+                                        placeholder="Ne izlemek istersin?"
+                                        placeholderTextColor="#94a3b8"
+                                        value={inputText}
+                                        onChangeText={setInputText}
+                                        onSubmitEditing={handleSend}
+                                        showSoftInputOnFocus={true}
+                                        autoCapitalize="none"
+                                        blurOnSubmit={false}
+                                    />
+                                </Pressable>
+                                <Pressable
+                                    style={[styles.sendButton, !inputText.trim() && styles.sendButtonDisabled, isTV && sendFocused && styles.sendButtonFocused]}
                                     onPress={handleSend}
                                     disabled={!inputText.trim() || loading}
+                                    focusable={isTV}
+                                    isTVSelectable={isTV}
+                                    onFocus={isTV ? () => setSendFocused(true) : undefined}
+                                    onBlur={isTV ? () => setSendFocused(false) : undefined}
                                 >
                                     <Ionicons name="send" size={20} color="#fff" />
-                                </TouchableOpacity>
+                                </Pressable>
                             </View>
                         </KeyboardAvoidingView>
                     </Animated.View>
@@ -286,6 +319,11 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         marginLeft: 8,
         fontSize: 14,
+    },
+    fabFocused: {
+        borderWidth: 3,
+        borderColor: '#14b8a6',
+        transform: [{ scale: 1.05 }],
     },
     overlay: {
         flex: 1,
@@ -442,6 +480,21 @@ const styles = StyleSheet.create({
     sendButtonDisabled: {
         backgroundColor: '#1e293b',
         opacity: 0.5,
+    },
+    inputWrapper: {
+        flex: 1,
+        borderRadius: 24,
+        borderWidth: 2,
+        borderColor: 'transparent',
+    },
+    inputWrapperFocused: {
+        borderColor: '#14b8a6',
+        transform: [{ scale: 1.02 }],
+    },
+    sendButtonFocused: {
+        borderColor: '#14b8a6',
+        borderWidth: 2,
+        transform: [{ scale: 1.1 }],
     },
 });
 
