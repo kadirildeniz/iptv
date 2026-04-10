@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { View, StyleSheet, Platform, Text, ActivityIndicator, Pressable, useWindowDimensions, Image } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { FlashList } from '@shopify/flash-list';
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useRouter, Redirect, useFocusEffect } from 'expo-router';
@@ -35,6 +36,7 @@ interface Category {
 }
 
 const LiveTv: React.FC = () => {
+  const { t } = useTranslation();
   const router = useRouter();
   const { width } = useWindowDimensions();
 
@@ -102,7 +104,7 @@ const LiveTv: React.FC = () => {
       const dbCategories = await database.get<LiveCategoryModel>('live_categories').query().fetch();
 
       if (dbCategories.length === 0) {
-        setError('Kategoriler bulunamadı. Lütfen ana sayfadan güncelleme yapın.');
+        setError(t('liveTv.categoriesNotFound'));
         setLoading(false);
         return;
       }
@@ -117,13 +119,13 @@ const LiveTv: React.FC = () => {
       const formattedCategories = Array.from(uniqueMap.values()).filter(c => c.id !== 'all' && c.id !== 'favorites');
 
       setCategories([
-        { id: 'all', name: '📺 TÜM' },
-        { id: 'favorites', name: '⭐ FAVORİLERİM' },
+        { id: 'all', name: t('liveTv.allChannels') },
+        { id: 'favorites', name: t('liveTv.favorites') },
         ...formattedCategories,
       ]);
       setSelectedCategory('all');
     } catch (err) {
-      setError('Kategori yükleme hatası');
+      setError(t('liveTv.categoryError'));
     } finally {
       setLoading(false);
     }
@@ -151,7 +153,10 @@ const LiveTv: React.FC = () => {
         category_id: c.categoryId,
         category_ids: c.categoryIds ? JSON.parse(c.categoryIds) : [],
         tv_archive: c.tvArchive || 0,
-        streamUrl: buildStreamUrl(baseUrl, credentials.username, credentials.password, c.streamId.toString(), 'ts')
+        // Demo mod desteği: directSource varsa doğrudan kullan, yoksa buildStreamUrl ile oluştur
+        streamUrl: c.directSource
+          ? c.directSource
+          : buildStreamUrl(baseUrl, credentials.username, credentials.password, c.streamId.toString(), 'ts')
       }));
 
       // Filtrele
@@ -172,8 +177,8 @@ const LiveTv: React.FC = () => {
         logo: ch.stream_icon || '',
         subscribers: `ID: ${ch.stream_id}`,
         quality: ch.tv_archive ? ['HD', 'REC'] : ['HD'],
-        description: 'Canlı Yayın',
-        type: 'Canlı TV',
+        description: t('liveTv.liveStream'),
+        type: t('liveTv.liveTvType'),
         streamUrl: ch.streamUrl,
       })));
 
@@ -213,7 +218,7 @@ const LiveTv: React.FC = () => {
   const deviceType = width < 768 ? 'mobile' : 'tablet';
   // Sidebar genişliği sabit ve net olsun
   const SIDEBAR_WIDTH = deviceType === 'mobile' ? 0 : 260;
-  // Sağ taraftaki liste için kalan net alan (Paddingleri düşüy oruz)
+  // Sağ taraftaki liste için kalan net alan (Paddingleri düşüyoruz)
   const LIST_PADDING = 10;
   const availableWidth = width - SIDEBAR_WIDTH - (LIST_PADDING * 2);
 
@@ -268,7 +273,7 @@ const LiveTv: React.FC = () => {
                 onPress={() => router.back()}
               >
                 <Ionicons name="arrow-back" size={20} color="#fff" />
-                <Text style={styles.backText}>GERİ DÖN</Text>
+                <Text style={styles.backText}>{t('common.back')}</Text>
               </Pressable>
             </View>
 
@@ -286,11 +291,11 @@ const LiveTv: React.FC = () => {
         {/* SAĞ İÇERİK ALANI */}
         <View style={styles.mainContent}>
           <SearchHeader
-            title="Kanallar"
+            title={t('liveTv.title')}
             onSearch={setSearchQuery}
-            placeholder="Kanal ara..."
+            placeholder={t('liveTv.searchPlaceholder')}
             itemCount={filteredChannels.length}
-            itemLabel="kanal"
+            itemLabel={t('liveTv.channel')}
           />
 
           {loadingChannels ? (

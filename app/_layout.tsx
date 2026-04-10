@@ -12,6 +12,8 @@ import {
   Outfit_600SemiBold,
   Outfit_700Bold,
 } from '@expo-google-fonts/outfit';
+import { I18nextProvider } from 'react-i18next';
+import i18n from '@/i18n/i18n';
 import ErrorBoundary from '@/components/ErrorBoundary';
 
 SplashScreen.preventAutoHideAsync().catch(() => { });
@@ -68,14 +70,16 @@ export default function RootLayout() {
   }
 
   return (
-    <ErrorBoundary>
-      <Stack
-        screenOptions={{
-          headerShown: false,
-        }}
-      />
-      <ExpoStatusBar style="dark" hidden={true} />
-    </ErrorBoundary>
+    <I18nextProvider i18n={i18n}>
+      <ErrorBoundary>
+        <Stack
+          screenOptions={{
+            headerShown: false,
+          }}
+        />
+        <ExpoStatusBar style="dark" hidden={true} />
+      </ErrorBoundary>
+    </I18nextProvider>
   );
 }
 

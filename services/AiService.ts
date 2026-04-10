@@ -164,7 +164,7 @@ class AiService {
 
     /**
      * Kullanıcı isteğine göre film/dizi önerileri getirir.
-     * YENİ YAKLAŞIM: Veritabanındaki genre alanına göre arama yapar.
+     * YENİ YAKLAŞIM: Kategori tablosundan ID bulup, sonra film/dizi arar.
      */
     async getRecommendations(userPrompt: string): Promise<{
         message: string;
@@ -186,18 +186,20 @@ class AiService {
             let allSeries: any[] = [];
 
             if (genreKeywords.length > 0) {
-                // 2. Veritabanından türe göre ara - HEM FİLM HEM DİZİ
+                // 2. Veritabanından genre alanına göre ara - HEM FİLM HEM DİZİ
+                console.log('🎬 Genre alanında aranıyor:', genreKeywords);
+
                 const moviePromises = genreKeywords.map(genre =>
                     database!.get<Movie>('movies').query(
                         Q.where('genre', Q.like(`%${genre}%`)),
-                        Q.take(10)
+                        Q.take(15)
                     ).fetch()
                 );
 
                 const seriesPromises = genreKeywords.map(genre =>
                     database!.get<Series>('series').query(
                         Q.where('genre', Q.like(`%${genre}%`)),
-                        Q.take(10)
+                        Q.take(15)
                     ).fetch()
                 );
 
@@ -209,6 +211,14 @@ class AiService {
 
                 console.log(`📽️ ${allMovies.length} film bulundu`);
                 console.log(`📺 ${allSeries.length} dizi bulundu`);
+
+                // Debug: İlk birkaç sonucun genre değerlerini göster
+                if (allMovies.length > 0) {
+                    console.log('🎬 İlk 3 film:', allMovies.slice(0, 3).map(m => ({ name: m.name, genre: m.genre })));
+                }
+                if (allSeries.length > 0) {
+                    console.log('📺 İlk 3 dizi:', allSeries.slice(0, 3).map(s => ({ name: s.name, genre: s.genre })));
+                }
             } else {
                 // Tür belirlenemezse AI ile anahtar kelime al
                 if (this.isInitialized && this.groq) {
@@ -216,7 +226,7 @@ class AiService {
                 }
             }
 
-            // 3. Sonuçları formatla
+            // 5. Sonuçları formatla
             const moviesWithType = allMovies.map(m => ({
                 id: m.streamId,
                 title: m.name,

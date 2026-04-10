@@ -1,5 +1,5 @@
 import CardComponent from '@/app/components/card-component';
-import { useRouter, Redirect } from 'expo-router';
+import { useRouter, Redirect, useFocusEffect } from 'expo-router';
 import {
   ImageBackground,
   Platform,
@@ -12,18 +12,23 @@ import {
   Alert,
   Image,
   Animated,
+  ScrollView,
+  Dimensions,
+  BackHandler,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import storageService from '@/services/storage.service';
 import { syncService, authService, databaseService } from '@/services';
 import { getDeviceType, isTV } from '@/utils/responsive';
 import AiAssistantModal from '@/components/AiAssistantModal';
 
 export default function HomeScreen() {
+  const { t } = useTranslation();
   const router = useRouter();
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
 
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [shouldRedirect, setShouldRedirect] = useState(false);
@@ -34,7 +39,6 @@ export default function HomeScreen() {
   const [liveTvFocused, setLiveTvFocused] = useState(false);
   const [moviesFocused, setMoviesFocused] = useState(false);
   const [seriesFocused, setSeriesFocused] = useState(false);
-  const [profileFocused, setProfileFocused] = useState(false);
   const [settingsFocused, setSettingsFocused] = useState(false);
   // Güncelleme butonları için focus state
   const [updateLiveTvFocused, setUpdateLiveTvFocused] = useState(false);
@@ -53,6 +57,17 @@ export default function HomeScreen() {
   useEffect(() => {
     checkStoredCredentials();
     loadCounts();
+    // edgeToEdgeEnabled kaldırılınca float/map sorunu çözüldü mü kontrol
+    console.log('🔍 [EdgeToEdge Debug] Style prop kontrol:', {
+      width,
+      height,
+      typeOfWidth: typeof width,
+      typeOfHeight: typeof height,
+      isWidthNumber: typeof width === 'number',
+      isHeightNumber: typeof height === 'number',
+      platform: Platform.OS,
+      isTV: Platform.isTV,
+    });
   }, []);
 
   // Rotation animations
@@ -118,6 +133,38 @@ export default function HomeScreen() {
     setCounts(newCounts);
   };
 
+  // Geri Tuşu (BackHandler) için onayı
+  useFocusEffect(
+    useCallback(() => {
+      const onBackPress = () => {
+        Alert.alert(
+          t('common.exitAppTitle', 'Çıkış'),
+          t('common.exitAppMessage', 'Uygulamadan çıkmak istiyor musunuz?'),
+          [
+            {
+              text: t('common.no', 'Hayır'),
+              onPress: () => null,
+              style: 'cancel',
+            },
+            {
+              text: t('common.yes', 'Evet'),
+              onPress: () => BackHandler.exitApp(),
+            },
+          ],
+          { cancelable: true }
+        );
+        // Geri tuşunun varsayılan hareketini (hemen çıkma) engelle
+        return true;
+      };
+
+      const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+
+      return () => {
+        subscription.remove();
+      };
+    }, [t])
+  );
+
   const checkStoredCredentials = async () => {
     try {
       const creds = await storageService.getCredentials();
@@ -145,9 +192,9 @@ export default function HomeScreen() {
         await syncService.syncSeriesOnly();
       }
       await loadCounts();
-      Alert.alert('Başarılı', `${type === 'channels' ? 'Kanallar' : type === 'movies' ? 'Filmler' : 'Diziler'} güncellendi.`);
+      Alert.alert(t('common.success'), t('home.syncSuccess', { type: type === 'channels' ? t('home.channelsLabel') : type === 'movies' ? t('home.moviesLabel') : t('home.seriesLabel') }));
     } catch (error) {
-      Alert.alert('Hata', 'Güncelleme sırasında bir hata oluştu.');
+      Alert.alert(t('common.error'), t('home.syncError'));
       console.error(error);
     } finally {
       setSyncing(prev => ({ ...prev, [type]: false }));
@@ -160,7 +207,7 @@ export default function HomeScreen() {
       <ImageBackground source={require('@/assets/images/bg-home.png')} style={styles.container} resizeMode="cover">
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#6366f1" />
-          <Text style={styles.loadingText}>Yükleniyor...</Text>
+          <Text style={styles.loadingText}>{t('common.loading')}</Text>
         </View>
       </ImageBackground>
     );
@@ -173,9 +220,9 @@ export default function HomeScreen() {
           {/* TOP BAR */}
           <View style={styles.topBar}>
             <View style={styles.headerContent}>
-              <Image source={require('@/assets/images/splash.png')} style={styles.headerLogo} resizeMode="contain" />
+              <Image source={require('@/assets/images/splashscreen_logo.png')} style={styles.headerLogo} resizeMode="contain" />
               <Text style={styles.textDescription}>
-                Canlı Tv, Dizi, Film ve yüzlerce içerik…
+                {t('home.description')}
               </Text>
             </View>
 
@@ -186,18 +233,7 @@ export default function HomeScreen() {
                 </Text>
               </View>
 
-              <Pressable
-                onFocus={isTV ? () => setProfileFocused(true) : undefined}
-                onBlur={isTV ? () => setProfileFocused(false) : undefined}
-                onPress={() => router.push('/settings')}
-                isTVSelectable={isTV}
-                focusable={isTV}
-                android_tv_focusable={isTV}
-              >
-                <View style={[styles.iconButton, { marginRight: 12 }, isTV && profileFocused && styles.iconFocused]}>
-                  <Ionicons name="person-circle-outline" size={28} color="#ffffff" />
-                </View>
-              </Pressable>
+
               <Pressable
                 onFocus={isTV ? () => setSettingsFocused(true) : undefined}
                 onBlur={isTV ? () => setSettingsFocused(false) : undefined}
@@ -213,13 +249,19 @@ export default function HomeScreen() {
             </View>
           </View>
 
-          <View style={styles.contentView}>
+          <View style={[styles.contentView, { justifyContent: isPhone ? 'flex-start' : 'flex-end' }]}>
             <View style={styles.infoContainer}>
-              <Text style={styles.infoText}>* İçerikleri güncellemek için kart üzerindeki ikona basınız.</Text>
+              <Text style={styles.infoText}>{t('home.updateInfo')}</Text>
             </View>
 
             {/* GÜNCELLEME BUTONLARI SATIRI - D-Pad ile erişilebilir */}
-            <View style={[styles.updateButtonsRow, { flexDirection: isPhone ? 'column' : 'row' }]}>
+            <View style={[
+              styles.updateButtonsRow,
+              {
+                flexDirection: isPhone ? 'column' : 'row',
+                marginBottom: isPhone ? -10 : -20
+              }
+            ]}>
               {/* Canlı TV Güncelleme */}
               <View style={[styles.updateButtonContainer, { width: isPhone ? '100%' : '32%', marginRight: isPhone ? 0 : 12 }]}>
                 <Pressable
@@ -297,10 +339,17 @@ export default function HomeScreen() {
             </View>
 
             {/* KARTLAR SATIRI */}
-            <View style={[styles.cardContainer, { flexDirection: isPhone ? 'column' : 'row' }]}>
+            <View style={[
+              styles.cardContainer,
+              {
+                flexDirection: isPhone ? 'column' : 'row',
+                justifyContent: isPhone ? 'flex-start' : 'space-between',
+              }
+            ]}>
               {/* CANLI TV KARTI */}
-              <View style={[styles.cardWrapper, { width: isPhone ? '100%' : '32%', marginRight: isPhone ? 0 : 12, marginBottom: isPhone ? 12 : 0 }]}>
+              <View style={[styles.cardWrapper, { width: isPhone ? '100%' : '32%', marginRight: isPhone ? 0 : '1%', marginBottom: isPhone ? 8 : 0 }]}>
                 <Pressable
+                  style={{ flex: 1 }}
                   onFocus={isTV ? () => setLiveTvFocused(true) : undefined}
                   onBlur={isTV ? () => setLiveTvFocused(false) : undefined}
                   onPress={() => router.push('/live-tv')}
@@ -311,8 +360,8 @@ export default function HomeScreen() {
                 >
                   <View style={[styles.cardTouchable, isTV && liveTvFocused && styles.cardFocused]}>
                     <CardComponent
-                      title="Canlı TV"
-                      description={`${counts.channels} Kanal`}
+                      title={t('home.liveTV')}
+                      description={`${counts.channels} ${t('home.channels')}`}
                       image={require('@/assets/images/tv.png')}
                       style={styles.card}
                     />
@@ -321,8 +370,9 @@ export default function HomeScreen() {
               </View>
 
               {/* FİLMLER KARTI */}
-              <View style={[styles.cardWrapper, { width: isPhone ? '100%' : '32%', marginRight: isPhone ? 0 : 12, marginBottom: isPhone ? 12 : 0 }]}>
+              <View style={[styles.cardWrapper, { width: isPhone ? '100%' : '32%', marginRight: isPhone ? 0 : '1%', marginBottom: isPhone ? 8 : 0 }]}>
                 <Pressable
+                  style={{ flex: 1 }}
                   onFocus={isTV ? () => setMoviesFocused(true) : undefined}
                   onBlur={isTV ? () => setMoviesFocused(false) : undefined}
                   onPress={() => router.push('/movies')}
@@ -332,8 +382,8 @@ export default function HomeScreen() {
                 >
                   <View style={[styles.cardTouchable, isTV && moviesFocused && styles.cardFocused]}>
                     <CardComponent
-                      title="Filmler"
-                      description={`${counts.movies} Film`}
+                      title={t('home.movies')}
+                      description={`${counts.movies} ${t('home.movie')}`}
                       image={require('@/assets/images/film-rulo.png')}
                       style={styles.card}
                     />
@@ -344,6 +394,7 @@ export default function HomeScreen() {
               {/* DİZİLER KARTI */}
               <View style={[styles.cardWrapper, { width: isPhone ? '100%' : '32%' }]}>
                 <Pressable
+                  style={{ flex: 1 }}
                   onFocus={isTV ? () => setSeriesFocused(true) : undefined}
                   onBlur={isTV ? () => setSeriesFocused(false) : undefined}
                   onPress={() => router.push('/series')}
@@ -353,8 +404,8 @@ export default function HomeScreen() {
                 >
                   <View style={[styles.cardTouchable, isTV && seriesFocused && styles.cardFocused]}>
                     <CardComponent
-                      title="Diziler"
-                      description={`${counts.series} Dizi`}
+                      title={t('home.series')}
+                      description={`${counts.series} ${t('home.serie')}`}
                       image={require('@/assets/images/tv-start.png')}
                       style={styles.card}
                     />
@@ -379,12 +430,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    paddingHorizontal: 20,
+    paddingHorizontal: 16, // Tüm içerikle tutarlı sol-sağ boşluk
     paddingTop: Platform.OS === 'android' ? 16 : 20,
     paddingBottom: 12,
   },
   headerContent: { flex: 1 },
-  headerLogo: { width: 150, height: 40, alignSelf: 'flex-start' },
+  headerLogo: { width: 150, height: 40, alignSelf: 'flex-start', marginLeft: -50 },
   textDescription: { color: '#fff', fontSize: 14, opacity: 0.85, marginTop: 6 },
   iconButtons: { flexDirection: 'row', alignItems: 'center' },
   iconButton: {
@@ -409,21 +460,25 @@ const styles = StyleSheet.create({
     marginRight: 16,
   },
   dateText: { color: '#fff', fontSize: 14, fontWeight: '600' },
-  contentView: { flex: 1, paddingHorizontal: 16, paddingBottom: 20 },
+  contentView: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+  },
   infoContainer: {
-    marginBottom: 16,
-    padding: 10,
+    marginBottom: 8,
+    padding: 8,
     backgroundColor: 'rgba(255,255,255,0.08)',
     borderRadius: 8,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.15)',
   },
-  infoText: { color: '#fff', opacity: 0.85, fontSize: 13 },
+  infoText: { color: '#fff', opacity: 0.85, fontSize: 12 },
   // Güncelleme butonları satırı
   updateButtonsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: -35, // Kartlarla overlap için negatif margin
+    marginBottom: -20, // Kartlarla overlap için negatif margin (azaltıldı)
     zIndex: 10,
     paddingHorizontal: 4,
   },
@@ -452,17 +507,19 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 0 },
     elevation: 5,
   },
-  cardContainer: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
+  cardContainer: { flexDirection: 'row', justifyContent: 'space-between', flex: 1 },
   cardWrapper: {
-    marginBottom: 16,
+    marginBottom: 4,
+    flex: 1,
   },
   cardTouchable: {
     borderRadius: 16,
-    overflow: 'hidden',
+    overflow: 'visible',
     borderWidth: 2,
     borderColor: 'transparent',
+    flex: 1,
   },
-  card: { width: '100%' },
+  card: { width: '100%', flex: 1 },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loadingText: {
     color: '#fff',

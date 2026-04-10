@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View,
   Text,
@@ -13,13 +14,16 @@ import {
   Modal,
   ScrollView,
   TextInput,
+  Pressable,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system';
 import * as Application from 'expo-application';
 import Constants from 'expo-constants';
-import { storageService, authService, databaseService } from '@/services';
+import { useTranslation } from 'react-i18next';
+import { SUPPORTED_LANGUAGES, changeLanguage } from '@/i18n/i18n';
+import { storageService, authService, databaseService, database } from '@/services';
 import { fonts } from '@/theme/fonts';
 import syncService from '@/services/sync.service';
 
@@ -62,10 +66,11 @@ const maskUrl = (url: string): string => {
 };
 
 const SettingsScreen: React.FC = () => {
+  const { t, i18n } = useTranslation();
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
-  const [lastSync, setLastSync] = useState<string>('Hiçbir zaman');
+  const [lastSync, setLastSync] = useState<string>('');
 
   // Account Info
   const [accountInfo, setAccountInfo] = useState<any>(null);
@@ -74,18 +79,26 @@ const SettingsScreen: React.FC = () => {
   // Settings States
   const [audioBoost, setAudioBoost] = useState<number>(1.0);
   const [dialogEnhancement, setDialogEnhancement] = useState<boolean>(false);
+  const [preferredLanguage, setPreferredLanguage] = useState<string>('off');
   const [hwDecoder, setHwDecoder] = useState<boolean>(true);
   const [bufferMode, setBufferMode] = useState<'low' | 'normal' | 'high'>('normal');
   const [parentalControl, setParentalControl] = useState<boolean>(false);
-  const [cacheSize, setCacheSize] = useState<string>('Hesaplanıyor...');
+  const [cacheSize, setCacheSize] = useState<string>('');
   const [appVersion, setAppVersion] = useState<string>('1.0.0');
 
   // Modal States
   const [audioBoostModal, setAudioBoostModal] = useState(false);
   const [bufferModeModal, setBufferModeModal] = useState(false);
+  const [languageModal, setLanguageModal] = useState(false);
+  const [appLanguageModal, setAppLanguageModal] = useState(false);
   const [serverModal, setServerModal] = useState(false);
   const [serverUrl, setServerUrl] = useState('');
   const [savingServer, setSavingServer] = useState(false);
+
+  // TV Focus States
+  const isTV = Platform.isTV;
+  const [focusedItemId, setFocusedItemId] = useState<string | null>(null);
+  const [focusedModalOptionValue, setFocusedModalOptionValue] = useState<any>(null);
 
   useEffect(() => {
     initialize();
@@ -107,6 +120,21 @@ const SettingsScreen: React.FC = () => {
 
   const loadAccountInfo = async () => {
     try {
+      // Demo modda API çağrısı yapma, sahte hesap bilgisi kullan
+      const creds = await storageService.getCredentials();
+      if (creds?.username === 'demo') {
+        setAccountInfo({
+          user_info: {
+            username: 'demo',
+            status: 'Active',
+            auth: 1,
+            exp_date: String(Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60), // 1 yıl sonra
+            message: 'Demo Modu',
+          },
+          server_info: {},
+        });
+        return;
+      }
       const info = await authService.getAccountInfo();
       setAccountInfo(info);
     } catch (error) {
@@ -148,7 +176,7 @@ const SettingsScreen: React.FC = () => {
       setCacheSize(formatBytes(totalSize));
     } catch (error) {
       console.error('Cache calculation error:', error);
-      setCacheSize('Bilinmiyor');
+      setCacheSize(t('common.unknown'));
     }
   };
 
@@ -165,9 +193,13 @@ const SettingsScreen: React.FC = () => {
       const savedAudioBoost = await storageService.getItem<string>('audio_boost_level');
       if (savedAudioBoost) setAudioBoost(parseFloat(savedAudioBoost));
 
-      // Dialog Enhancement
+      // Dialog Enhancement (legacy)
       const savedDialog = await storageService.getItem<string>('dialog_enhancement');
       if (savedDialog) setDialogEnhancement(savedDialog === 'true');
+
+      // Preferred Audio Language
+      const savedLang = await storageService.getItem<string>('preferred_audio_language');
+      if (savedLang) setPreferredLanguage(savedLang);
 
       // HW Decoder
       const savedHW = await storageService.getItem<string>('hw_decoder');
@@ -189,10 +221,10 @@ const SettingsScreen: React.FC = () => {
         const now = new Date();
         const diff = now.getTime() - syncTime.getTime();
         const minutes = Math.floor(diff / 60000);
-        if (minutes < 1) setLastSync('Az önce');
-        else if (minutes < 60) setLastSync(`${minutes} dk önce`);
-        else if (minutes < 1440) setLastSync(`${Math.floor(minutes / 60)} saat önce`);
-        else setLastSync(`${Math.floor(minutes / 1440)} gün önce`);
+        if (minutes < 1) setLastSync(t('common.justNow'));
+        else if (minutes < 60) setLastSync(t('common.minutesAgo', { count: minutes }));
+        else if (minutes < 1440) setLastSync(t('common.hoursAgo', { count: Math.floor(minutes / 60) }));
+        else setLastSync(t('common.daysAgo', { count: Math.floor(minutes / 1440) }));
       }
     } catch (error) {
       console.error('Settings load error:', error);
@@ -209,6 +241,27 @@ const SettingsScreen: React.FC = () => {
     await storageService.setItem('dialog_enhancement', value.toString());
   };
 
+  const savePreferredLanguage = async (lang: string) => {
+    setPreferredLanguage(lang);
+    await storageService.setPreferredAudioLanguage(lang);
+  };
+
+  // Dil kodu -> Görüntü adı
+  const getLanguageLabel = (code: string): string => {
+    const labels: Record<string, string> = {
+      'off': t('settings.langOff'),
+      'tur': t('settings.langTurkish'),
+      'eng': t('settings.langEnglish'),
+      'ger': t('settings.langGerman'),
+      'fra': t('settings.langFrench'),
+      'spa': t('settings.langSpanish'),
+      'ara': t('settings.langArabic'),
+      'rus': t('settings.langRussian'),
+      'original': t('settings.langOriginal')
+    };
+    return labels[code] || code;
+  };
+
   const saveHWDecoder = async (value: boolean) => {
     setHwDecoder(value);
     await storageService.setItem('hw_decoder', value.toString());
@@ -223,12 +276,12 @@ const SettingsScreen: React.FC = () => {
     if (syncing) return;
 
     Alert.alert(
-      'İçeriği Güncelle',
-      'Tüm içerikler (Kanallar, Filmler, Diziler) sunucudan tekrar indirilecektir. Bu işlem internet hızınıza bağlı olarak zaman alabilir.',
+      t('settings.updateContent'),
+      t('settings.updateContentConfirm'),
       [
-        { text: 'İptal', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Güncelle',
+          text: t('common.update'),
           onPress: async () => {
             try {
               setSyncing(true);
@@ -237,12 +290,12 @@ const SettingsScreen: React.FC = () => {
               // Update last sync time
               const now = Date.now().toString();
               await storageService.setItem('last_sync_time', now);
-              setLastSync('Az önce');
+              setLastSync(t('common.justNow'));
 
-              Alert.alert('Başarılı', 'Tüm içerikler başarıyla güncellendi.');
+              Alert.alert(t('common.success'), t('settings.updateSuccess'));
             } catch (error: any) {
               console.error('Sync error:', error);
-              Alert.alert('Hata', error.message || 'Güncelleme sırasında bir hata oluştu.');
+              Alert.alert(t('common.error'), error.message || t('settings.updateError'));
             } finally {
               setSyncing(false);
             }
@@ -254,21 +307,21 @@ const SettingsScreen: React.FC = () => {
 
   const handleClearHistory = async () => {
     Alert.alert(
-      'Geçmişi Temizle',
-      'İzleme geçmişiniz ve kaldığınız yerler silinecektir. Onaylıyor musunuz?',
+      t('settings.clearHistory'),
+      t('settings.clearHistoryConfirm'),
       [
-        { text: 'İptal', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Temizle',
+          text: t('common.clean'),
           style: 'destructive',
           onPress: async () => {
             try {
               await databaseService.clearHistory();
               await databaseService.clearContinueWatching();
-              Alert.alert('Başarılı', 'İzleme geçmişi temizlendi.');
+              Alert.alert(t('common.success'), t('settings.clearHistorySuccess'));
             } catch (error) {
               console.error('Clear history error:', error);
-              Alert.alert('Hata', 'Geçmiş temizlenirken bir hata oluştu.');
+              Alert.alert(t('common.error'), t('settings.clearHistoryError'));
             }
           }
         }
@@ -278,20 +331,64 @@ const SettingsScreen: React.FC = () => {
 
   const handleClearFavorites = async () => {
     Alert.alert(
-      'Favorileri Temizle',
-      'Tüm favorileriniz silinecektir. Onaylıyor musunuz?',
+      t('settings.clearFavorites'),
+      t('settings.clearFavoritesConfirm'),
       [
-        { text: 'İptal', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Temizle',
+          text: t('common.clean'),
           style: 'destructive',
           onPress: async () => {
             try {
               await databaseService.clearFavorites();
-              Alert.alert('Başarılı', 'Favoriler temizlendi.');
+              Alert.alert(t('common.success'), t('settings.clearFavoritesSuccess'));
             } catch (error) {
               console.error('Clear favorites error:', error);
-              Alert.alert('Hata', 'Favoriler temizlenirken bir hata oluştu.');
+              Alert.alert(t('common.error'), t('settings.clearFavoritesError'));
+            } finally {
+              setSyncing(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const handleLogout = () => {
+    Alert.alert(
+      t('settings.logoutConfirmTitle', 'Çıkış Yap'),
+      t('settings.logoutConfirmMessage', 'Tüm verileriniz ve ayarlarınız silinecek. Çıkış yapmak istediğinize emin misiniz?'),
+      [
+        { text: t('common.cancel', 'Hayır'), style: 'cancel' },
+        {
+          text: t('settings.logout', 'Çıkış Yap'),
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setLoading(true);
+
+              // AsyncStorage ve Auth verilerini temizle
+              await AsyncStorage.clear();
+              await authService.logout();
+
+              // Veritabanını sıfırla
+              if (database) {
+                const db = database;
+                await db.write(async () => {
+                  try {
+                    await db.unsafeResetDatabase();
+                  } catch (dbError) {
+                    console.error('Database reset failed:', dbError);
+                  }
+                });
+              }
+
+              // Login sayfasına yönlendir
+              router.replace('/login');
+            } catch (err) {
+              console.error('Logout error:', err);
+            } finally {
+              setLoading(false);
             }
           }
         }
@@ -301,10 +398,10 @@ const SettingsScreen: React.FC = () => {
 
   const handleClearCache = async () => {
     Alert.alert(
-      'Önbelleği Temizle',
-      'Uygulama önbelleği temizlenecektir. Bu işlem biraz zaman alabilir.',
+      t('settings.clearCache'),
+      t('settings.clearCacheConfirm'),
       [
-        { text: 'İptal', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
           text: 'Temizle',
           style: 'destructive',
@@ -320,10 +417,10 @@ const SettingsScreen: React.FC = () => {
                 }
               }
               calculateCacheSize(); // Recalculate
-              Alert.alert('Başarılı', 'Önbellek temizlendi.');
+              Alert.alert(t('common.success'), t('settings.clearCacheSuccess'));
             } catch (error) {
               console.error('Clear cache error:', error);
-              Alert.alert('Hata', 'Önbellek temizlenirken bir hata oluştu.');
+              Alert.alert(t('common.error'), t('settings.clearCacheError'));
             }
           }
         }
@@ -332,21 +429,18 @@ const SettingsScreen: React.FC = () => {
   };
 
   const handleSaveServer = async () => {
-    if (!serverUrl.trim()) {
-      Alert.alert('Hata', 'Lütfen sunucu adresini girin');
+    if (!serverUrl || serverUrl.trim() === '') {
+      Alert.alert(t('common.error'), t('settings.enterServerUrl'));
       return;
     }
 
     Alert.alert(
-      '⚠️ Sunucu Değişimi',
-      'Sunucu değiştiğinde tüm veriler, favoriler ve izleme geçmişi silinecektir. Yeni sunucudan veriler tekrar indirilecektir.\n\nOnaylıyor musunuz?',
+      t('settings.serverChangeTitle'),
+      t('settings.serverChangeConfirm'),
       [
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'İptal',
-          style: 'cancel',
-        },
-        {
-          text: 'Onayla',
+          text: t('common.confirm'),
           style: 'destructive',
           onPress: async () => {
             try {
@@ -355,8 +449,8 @@ const SettingsScreen: React.FC = () => {
               const currentCredentials = await storageService.getCredentials();
 
               if (!currentCredentials) {
-                Alert.alert('Hata', 'Hesap bilgileri bulunamadı');
                 setSavingServer(false);
+                Alert.alert(t('common.error'), t('settings.accountNotFound'));
                 return;
               }
 
@@ -365,39 +459,31 @@ const SettingsScreen: React.FC = () => {
                 host: serverUrl.trim(),
               };
 
-              console.log('🔄 Yeni sunucu ile bağlantı test ediliyor...');
-
               try {
                 await authService.login(newCredentials);
-                console.log('✅ Yeni sunucu ile bağlantı başarılı');
-              } catch (authError: any) {
-                console.error('❌ Sunucu bağlantı hatası:', authError);
+              } catch (networkError) {
+                console.error('New server connection failed:', networkError);
                 setSavingServer(false);
                 Alert.alert(
-                  'Bağlantı Hatası',
-                  authError.message || 'Yeni sunucu adresine bağlanılamadı. Lütfen URL\'yi kontrol edin.'
+                  t('settings.connectionErrorTitle'),
+                  t('settings.connectionError')
                 );
                 return;
               }
 
-              console.log('🗑️ Eski veriler siliniyor...');
               await databaseService.resetDatabase();
-
-              console.log('💾 Yeni credentials kaydediliyor...');
               await storageService.saveCredentials(newCredentials);
               await storageService.removeItem('last_sync_time');
 
               setServerModal(false);
               setSavingServer(false);
 
-              console.log('✅ Sunucu değişimi tamamlandı');
-
               Alert.alert(
-                '✅ Başarılı',
-                'Sunucu adresi güncellendi ve eski veriler temizlendi. Ana sayfadan "Güncelle" butonuna basarak yeni içerikleri indirebilirsiniz.',
+                t('common.success'),
+                t('settings.serverChangeSuccess'),
                 [
                   {
-                    text: 'Tamam',
+                    text: t('common.ok'),
                     onPress: () => {
                       router.replace('/');
                     },
@@ -405,12 +491,12 @@ const SettingsScreen: React.FC = () => {
                 ],
                 { cancelable: false }
               );
-            } catch (error: any) {
-              console.error('❌ Sunucu değiştirme hatası:', error);
+            } catch (error) {
+              console.error('Change server error:', error);
               setSavingServer(false);
               Alert.alert(
-                'Hata',
-                error.message || 'Sunucu değiştirilirken bir hata oluştu. Lütfen tekrar deneyin.'
+                t('common.error'),
+                t('settings.serverChangeError')
               );
             }
           },
@@ -420,70 +506,70 @@ const SettingsScreen: React.FC = () => {
   };
 
   const getAudioBoostLabel = (value: number): string => {
-    if (value === 1.0) return '🔇 Kapalı';
-    if (value === 1.5) return '🔉 Hafif (+%50)';
-    if (value === 2.0) return '🔊 Güçlü (+%100)';
-    if (value === 3.0) return '📢 Maksimum (+%200)';
+    if (value === 1.0) return t('settings.audioBoostOff');
+    if (value === 1.5) return t('settings.audioBoostLight');
+    if (value === 2.0) return t('settings.audioBoostStrong');
+    if (value === 3.0) return t('settings.audioBoostMax');
     return `${value}x`;
   };
 
   const sections: SettingSection[] = [
     {
-      title: 'HESAP',
+      title: t('settings.account'),
       emoji: '👤',
       data: [
         {
           id: 'username',
-          title: 'Kullanıcı',
+          title: t('settings.user'),
           icon: 'person-outline',
           type: 'info',
-          value: accountInfo?.user_info?.username || credentials?.username || 'Bilinmiyor',
-          badge: accountInfo?.user_info?.status === 'Active' ? 'Aktif' : 'Pasif',
+          value: accountInfo?.user_info?.username || credentials?.username || t('common.unknown'),
+          badge: accountInfo?.user_info?.status === 'Active' ? t('settings.active') : t('settings.inactive'),
           badgeColor: accountInfo?.user_info?.status === 'Active' ? '#10b981' : '#ef4444',
         },
         {
           id: 'server',
-          title: 'Sunucu',
+          title: t('settings.server'),
           icon: 'server-outline',
           type: 'action',
-          value: credentials?.host ? maskUrl(credentials.host) : 'Bilinmiyor',
-          badge: 'Düzenle',
+          value: credentials?.host ? maskUrl(credentials.host) : t('common.unknown'),
+          badge: t('settings.edit'),
           onPress: () => setServerModal(true),
         },
         {
           id: 'expiry',
-          title: 'Bitiş Tarihi',
+          title: t('settings.expiryDate'),
           icon: 'calendar-outline',
           type: 'info',
           value: accountInfo?.user_info?.exp_date
-            ? new Date(accountInfo.user_info.exp_date * 1000).toLocaleDateString('tr-TR')
-            : 'Bilinmiyor',
+            ? new Date(accountInfo.user_info.exp_date * 1000).toLocaleDateString(i18n.language === 'tr' ? 'tr-TR' : i18n.language === 'de' ? 'de-DE' : i18n.language === 'es' ? 'es-ES' : 'en-US')
+            : t('common.unknown'),
         },
       ],
     },
     {
-      title: 'OYNATICI & SES',
+      title: t('settings.playerAndAudio'),
       emoji: '🎬',
       data: [
         {
           id: 'audio_boost',
-          title: 'Ses Güçlendirme',
+          title: t('settings.audioBoost'),
           icon: 'volume-high-outline',
           type: 'selector',
           value: getAudioBoostLabel(audioBoost),
           onPress: () => setAudioBoostModal(true),
         },
         {
-          id: 'dialog_enhancement',
-          title: 'Diyalog İyileştirme',
-          icon: 'chatbubbles-outline',
-          type: 'switch',
-          value: dialogEnhancement,
-          onValueChange: saveDialogEnhancement,
+          id: 'preferred_language',
+          title: t('settings.preferredAudioLang'),
+          icon: 'language-outline',
+          type: 'selector',
+          value: getLanguageLabel(preferredLanguage),
+          onPress: () => setLanguageModal(true),
         },
         {
           id: 'hw_decoder',
-          title: 'Donanım Hızlandırma',
+          title: t('settings.hwAcceleration'),
           icon: 'hardware-chip-outline',
           type: 'switch',
           value: hwDecoder,
@@ -491,37 +577,37 @@ const SettingsScreen: React.FC = () => {
         },
         {
           id: 'buffer_mode',
-          title: 'Tampon Bellek (Buffer)',
+          title: t('settings.bufferMode'),
           icon: 'speedometer-outline',
           type: 'selector',
-          value: bufferMode === 'low' ? 'Düşük' : bufferMode === 'high' ? 'Yüksek' : 'Normal',
+          value: bufferMode === 'low' ? t('settings.bufferLow') : bufferMode === 'high' ? t('settings.bufferHigh') : t('settings.bufferNormal'),
           onPress: () => setBufferModeModal(true),
         },
       ],
     },
     {
-      title: 'VERİ & SENKRONİZASYON',
+      title: t('settings.dataAndSync'),
       emoji: '☁️',
       data: [
         {
           id: 'sync',
-          title: 'İçeriği Güncelle',
+          title: t('settings.updateContent'),
           icon: 'refresh-outline',
           type: 'action',
-          value: lastSync,
+          value: lastSync || t('common.never'),
           onPress: handleSync,
         },
         {
           id: 'clear_cache',
-          title: 'Önbelleği Temizle',
+          title: t('settings.clearCache'),
           icon: 'trash-outline',
           type: 'action',
-          value: cacheSize,
+          value: cacheSize || t('common.calculating'),
           onPress: handleClearCache,
         },
         {
           id: 'clear_history',
-          title: 'Geçmişi Temizle',
+          title: t('settings.clearHistory'),
           icon: 'time-outline',
           type: 'action',
           danger: true,
@@ -529,7 +615,7 @@ const SettingsScreen: React.FC = () => {
         },
         {
           id: 'clear_favorites',
-          title: 'Favorileri Temizle',
+          title: t('settings.clearFavorites'),
           icon: 'heart-dislike-outline',
           type: 'action',
           danger: true,
@@ -538,30 +624,103 @@ const SettingsScreen: React.FC = () => {
       ],
     },
     {
-      title: 'UYGULAMA',
+      title: t('settings.app'),
       emoji: '📱',
       data: [
         {
+          id: 'app_language',
+          title: t('settings.language'),
+          icon: 'globe-outline',
+          type: 'selector',
+          value: SUPPORTED_LANGUAGES.find(l => l.code === i18n.language)?.label || '🇬🇧 English',
+          onPress: () => setAppLanguageModal(true),
+        },
+        {
           id: 'version',
-          title: 'Sürüm',
+          title: t('settings.version'),
           icon: 'information-circle-outline',
           type: 'info',
           value: appVersion,
         },
+        {
+          id: 'logout',
+          title: t('settings.logout', 'Çıkış Yap'),
+          icon: 'log-out-outline',
+          type: 'action',
+          danger: true,
+          onPress: handleLogout,
+        },
       ],
     },
+    // Geliştirici bölümü sadece development modunda görünsün
+    ...(__DEV__ ? [{
+      title: t('settings.developer'),
+      emoji: '🛠️',
+      data: [
+        {
+          id: 'debug_database',
+          title: 'Database Debug',
+          icon: 'server-outline' as keyof typeof Ionicons.glyphMap,
+          type: 'action' as SettingItemType,
+          value: 'Konsola yazdır',
+          onPress: async () => {
+            Alert.alert('Debug', 'WatermelonDB verileri konsola yazdırılıyor...');
+            await databaseService.debugDatabase();
+          },
+        },
+        {
+          id: 'debug_storage',
+          title: 'Storage Debug',
+          icon: 'folder-outline' as keyof typeof Ionicons.glyphMap,
+          type: 'action' as SettingItemType,
+          value: 'Konsola yazdır',
+          onPress: async () => {
+            Alert.alert('Debug', 'AsyncStorage verileri konsola yazdırılıyor...');
+            await storageService.debugAll();
+          },
+        },
+        {
+          id: 'debug_movies_table',
+          title: 'Movies Tablosu',
+          icon: 'film-outline' as keyof typeof Ionicons.glyphMap,
+          type: 'action' as SettingItemType,
+          value: 'İlk 10 kayıt',
+          onPress: async () => {
+            Alert.alert('Debug', 'Movies tablosu konsola yazdırılıyor...');
+            await databaseService.debugTable('movies', 10);
+          },
+        },
+        {
+          id: 'debug_series_table',
+          title: 'Series Tablosu',
+          icon: 'tv-outline' as keyof typeof Ionicons.glyphMap,
+          type: 'action' as SettingItemType,
+          value: 'İlk 10 kayıt',
+          onPress: async () => {
+            Alert.alert('Debug', 'Series tablosu konsola yazdırılıyor...');
+            await databaseService.debugTable('series', 10);
+          },
+        },
+      ],
+    }] : []),
   ];
 
   const renderItem = ({ item }: { item: SettingItem }) => {
+    const isFocused = focusedItemId === item.id;
+
     return (
-      <TouchableOpacity
+      <Pressable
         style={[
           styles.settingItem,
           item.danger && styles.settingItemDanger,
+          isTV && isFocused && styles.settingItemFocused,
         ]}
         onPress={item.onPress}
         disabled={!item.onPress && item.type !== 'switch'}
-        activeOpacity={item.onPress || item.type === 'switch' ? 0.7 : 1}
+        focusable={isTV}
+        isTVSelectable={isTV}
+        onFocus={isTV ? () => setFocusedItemId(item.id) : undefined}
+        onBlur={isTV ? () => setFocusedItemId(null) : undefined}
       >
         <View style={styles.settingLeft}>
           <Ionicons
@@ -628,7 +787,7 @@ const SettingsScreen: React.FC = () => {
             />
           )}
         </View>
-      </TouchableOpacity>
+      </Pressable>
     );
   };
 
@@ -645,7 +804,7 @@ const SettingsScreen: React.FC = () => {
       <SafeAreaView style={styles.container}>
         <View style={styles.center}>
           <ActivityIndicator size="large" color="#3b82f6" />
-          <Text style={styles.loadingText}>Yükleniyor...</Text>
+          <Text style={styles.loadingText}>{t('common.loading')}</Text>
         </View>
       </SafeAreaView>
     );
@@ -660,7 +819,7 @@ const SettingsScreen: React.FC = () => {
         >
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Ayarlar</Text>
+        <Text style={styles.headerTitle}>{t('settings.title')}</Text>
         <View style={styles.headerSpacer} />
       </View>
 
@@ -683,36 +842,52 @@ const SettingsScreen: React.FC = () => {
         transparent={true}
         onRequestClose={() => setAudioBoostModal(false)}
       >
-        <TouchableOpacity
+        <Pressable
           style={styles.modalOverlay}
-          activeOpacity={1}
           onPress={() => setAudioBoostModal(false)}
+          focusable={false}
         >
           <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Ses Güçlendirme</Text>
-              <Text style={styles.modalSubtitle}>
-                Düşük sesli yayınlar için ses seviyesini artırın
-              </Text>
+            <View style={styles.modalHeaderWithClose}>
+              <View>
+                <Text style={styles.modalTitle}>{t('settings.audioBoostTitle')}</Text>
+                <Text style={styles.modalSubtitle}>
+                  {t('settings.audioBoostDescAlt')}
+                </Text>
+              </View>
+              <Pressable
+                style={styles.closeButton}
+                onPress={() => setAudioBoostModal(false)}
+                focusable={isTV}
+                isTVSelectable={isTV}
+              >
+                <Ionicons name="close" size={20} color="#fff" />
+              </Pressable>
             </View>
 
             <View style={styles.modalOptions}>
               {[
-                { value: 1.0, label: '🔇 Kapalı (1.0x)', subtitle: 'Normal ses seviyesi' },
-                { value: 1.5, label: '🔉 Hafif (+%50)', subtitle: 'Biraz daha yüksek' },
-                { value: 2.0, label: '🔊 Güçlü (+%100)', subtitle: 'İki kat ses' },
-                { value: 3.0, label: '📢 Maksimum (+%200)', subtitle: 'Üç kat ses' },
-              ].map((option) => (
-                <TouchableOpacity
+                { value: 1.0, label: t('settings.audioLevel0Title'), subtitle: t('settings.audioLevel0Desc') },
+                { value: 1.5, label: t('settings.audioLevel1Title'), subtitle: t('settings.audioLevel1Desc') },
+                { value: 2.0, label: t('settings.audioLevel2Title'), subtitle: t('settings.audioLevel2Desc') },
+                { value: 3.0, label: t('settings.audioLevel3Title'), subtitle: t('settings.audioLevel3Desc') },
+              ].map((option, index) => (
+                <Pressable
                   key={option.value}
                   style={[
                     styles.modalOption,
                     audioBoost === option.value && styles.modalOptionActive,
+                    isTV && focusedModalOptionValue === option.value && styles.modalOptionFocused,
                   ]}
                   onPress={() => {
                     saveAudioBoost(option.value);
                     setAudioBoostModal(false);
                   }}
+                  focusable={isTV}
+                  isTVSelectable={isTV}
+                  hasTVPreferredFocus={isTV && index === 0 && audioBoostModal}
+                  onFocus={isTV ? () => setFocusedModalOptionValue(option.value) : undefined}
+                  onBlur={isTV ? () => setFocusedModalOptionValue(null) : undefined}
                 >
                   <View style={styles.modalOptionContent}>
                     <Text
@@ -728,11 +903,11 @@ const SettingsScreen: React.FC = () => {
                   {audioBoost === option.value && (
                     <Ionicons name="checkmark-circle" size={24} color="#3b82f6" />
                   )}
-                </TouchableOpacity>
+                </Pressable>
               ))}
             </View>
           </View>
-        </TouchableOpacity>
+        </Pressable>
       </Modal>
 
       {/* Buffer Mode Modal */}
@@ -742,35 +917,51 @@ const SettingsScreen: React.FC = () => {
         transparent={true}
         onRequestClose={() => setBufferModeModal(false)}
       >
-        <TouchableOpacity
+        <Pressable
           style={styles.modalOverlay}
-          activeOpacity={1}
           onPress={() => setBufferModeModal(false)}
+          focusable={false}
         >
           <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Tampon Bellek (Buffer)</Text>
-              <Text style={styles.modalSubtitle}>
-                İnternet hızınıza göre video yükleme ayarını seçin
-              </Text>
+            <View style={styles.modalHeaderWithClose}>
+              <View>
+                <Text style={styles.modalTitle}>{t('settings.bufferModeTitle')}</Text>
+                <Text style={styles.modalSubtitle}>
+                  {t('settings.bufferModeDesc')}
+                </Text>
+              </View>
+              <Pressable
+                style={styles.closeButton}
+                onPress={() => setBufferModeModal(false)}
+                focusable={isTV}
+                isTVSelectable={isTV}
+              >
+                <Ionicons name="close" size={20} color="#fff" />
+              </Pressable>
             </View>
 
             <View style={styles.modalOptions}>
               {[
-                { value: 'low', label: '⚡ Düşük', subtitle: 'Hızlı internetler için (Daha az gecikme)' },
-                { value: 'normal', label: '👍 Normal', subtitle: 'Önerilen ayar' },
-                { value: 'high', label: '🐢 Yüksek', subtitle: 'Yavaş internetler için (Daha az donma)' },
-              ].map((option) => (
-                <TouchableOpacity
+                { value: 'low', label: t('settings.bufferLowTitle'), subtitle: t('settings.bufferLowDesc') },
+                { value: 'normal', label: t('settings.bufferNormalTitle'), subtitle: t('settings.bufferNormalDesc') },
+                { value: 'high', label: t('settings.bufferHighTitle'), subtitle: t('settings.bufferHighDesc') },
+              ].map((option, index) => (
+                <Pressable
                   key={option.value}
                   style={[
                     styles.modalOption,
                     bufferMode === option.value && styles.modalOptionActive,
+                    isTV && focusedModalOptionValue === option.value && styles.modalOptionFocused,
                   ]}
                   onPress={() => {
                     saveBufferMode(option.value as 'low' | 'normal' | 'high');
                     setBufferModeModal(false);
                   }}
+                  focusable={isTV}
+                  isTVSelectable={isTV}
+                  hasTVPreferredFocus={isTV && index === 0 && bufferModeModal}
+                  onFocus={isTV ? () => setFocusedModalOptionValue(option.value) : undefined}
+                  onBlur={isTV ? () => setFocusedModalOptionValue(null) : undefined}
                 >
                   <View style={styles.modalOptionContent}>
                     <Text
@@ -786,11 +977,97 @@ const SettingsScreen: React.FC = () => {
                   {bufferMode === option.value && (
                     <Ionicons name="checkmark-circle" size={24} color="#3b82f6" />
                   )}
-                </TouchableOpacity>
+                </Pressable>
               ))}
             </View>
           </View>
-        </TouchableOpacity>
+        </Pressable>
+      </Modal>
+
+      {/* Language Selection Modal */}
+      <Modal
+        visible={languageModal}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setLanguageModal(false)}
+      >
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={() => setLanguageModal(false)}
+          focusable={false}
+        >
+          <View
+            style={styles.languageModalContent}
+            onStartShouldSetResponder={() => true}
+          >
+            <View style={styles.modalHeaderWithClose}>
+              <View>
+                <Text style={styles.modalTitle}>{t('settings.audioModalTitle')}</Text>
+                <Text style={styles.modalSubtitle}>
+                  {t('settings.audioModalDesc')}
+                </Text>
+              </View>
+              <Pressable
+                style={styles.closeButton}
+                onPress={() => setLanguageModal(false)}
+                focusable={isTV}
+                isTVSelectable={isTV}
+              >
+                <Ionicons name="close" size={24} color="#fff" />
+              </Pressable>
+            </View>
+
+            <ScrollView
+              style={styles.languageScrollView}
+              showsVerticalScrollIndicator={true}
+            >
+              {[
+                { value: 'off', label: t('settings.langOff', '❌ Kapalı'), subtitle: t('settings.langOffDesc') },
+                { value: 'tur', label: t('settings.langTurkish', '🇹🇷 Türkçe'), subtitle: t('settings.langTurDesc') },
+                { value: 'eng', label: t('settings.langEnglish', '🇬🇧 İngilizce'), subtitle: t('settings.langEngDesc') },
+                { value: 'ger', label: t('settings.langGerman', '🇩🇪 Almanca'), subtitle: t('settings.langGerDesc') },
+                { value: 'fra', label: t('settings.langFrench', '🇫🇷 Fransızca'), subtitle: t('settings.langFraDesc') },
+                { value: 'spa', label: t('settings.langSpanish', '🇪🇸 İspanyolca'), subtitle: t('settings.langSpaDesc') },
+                { value: 'ara', label: t('settings.langArabic', '🇸🇦 Arapça'), subtitle: t('settings.langAraDesc') },
+                { value: 'rus', label: t('settings.langRussian', '🇷🇺 Rusça'), subtitle: t('settings.langRusDesc') },
+                { value: 'original', label: t('settings.langOriginal', '🎬 Orijinal'), subtitle: t('settings.langOriginalDesc') },
+              ].map((option, index) => (
+                <Pressable
+                  key={option.value}
+                  style={[
+                    styles.modalOption,
+                    preferredLanguage === option.value && styles.modalOptionActive,
+                    isTV && focusedModalOptionValue === option.value && styles.modalOptionFocused,
+                  ]}
+                  onPress={() => {
+                    savePreferredLanguage(option.value);
+                    setLanguageModal(false);
+                  }}
+                  focusable={isTV}
+                  isTVSelectable={isTV}
+                  hasTVPreferredFocus={isTV && index === 0 && languageModal}
+                  onFocus={isTV ? () => setFocusedModalOptionValue(option.value) : undefined}
+                  onBlur={isTV ? () => setFocusedModalOptionValue(null) : undefined}
+                >
+                  <View style={styles.modalOptionContent}>
+                    <Text
+                      style={[
+                        styles.modalOptionLabel,
+                        preferredLanguage === option.value && styles.modalOptionLabelActive,
+                      ]}
+                    >
+                      {option.label}
+                    </Text>
+                    <Text style={styles.modalOptionSubtitle}>{option.subtitle}</Text>
+                  </View>
+                  {preferredLanguage === option.value && (
+                    <Ionicons name="checkmark-circle" size={24} color="#3b82f6" />
+                  )}
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
+        </Pressable>
       </Modal>
 
       {/* Server Edit Modal */}
@@ -800,68 +1077,135 @@ const SettingsScreen: React.FC = () => {
         transparent={true}
         onRequestClose={() => !savingServer && setServerModal(false)}
       >
-        <TouchableOpacity
+        <Pressable
           style={styles.modalOverlay}
-          activeOpacity={1}
           onPress={() => !savingServer && setServerModal(false)}
+          focusable={false}
         >
-          <TouchableOpacity
-            activeOpacity={1}
-            onPress={(e) => e.stopPropagation()}
+          <View
+            style={styles.serverModalContent}
+            onStartShouldSetResponder={() => true}
           >
-            <View style={styles.serverModalContent}>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Sunucu Adresini Düzenle</Text>
+            <View style={styles.modalHeaderWithClose}>
+              <View>
+                <Text style={styles.modalTitle}>{t('settings.serverEditTitle')}</Text>
                 <Text style={styles.modalSubtitle}>
-                  Yeni sunucu adresini girin
+                  {t('settings.serverEditDesc')}
                 </Text>
               </View>
-
-              <View style={styles.serverModalBody}>
-                <Text style={styles.inputLabel}>Sunucu URL</Text>
-                <TextInput
-                  style={styles.serverInput}
-                  value={serverUrl}
-                  onChangeText={setServerUrl}
-                  placeholder="örn: zunexle.live"
-                  placeholderTextColor="#64748b"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  editable={!savingServer}
-                />
-                <Text style={styles.inputHint}>
-                  * Kullanıcı adı ve şifre değişmeyecektir
-                </Text>
-              </View>
-
-              <View style={styles.serverModalFooter}>
-                <TouchableOpacity
-                  style={[styles.serverModalButton, styles.serverModalButtonCancel]}
-                  onPress={() => setServerModal(false)}
-                  disabled={savingServer}
-                >
-                  <Text style={styles.serverModalButtonTextCancel}>İptal</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    styles.serverModalButton,
-                    styles.serverModalButtonSave,
-                    savingServer && styles.serverModalButtonDisabled,
-                  ]}
-                  onPress={handleSaveServer}
-                  disabled={savingServer}
-                >
-                  {savingServer ? (
-                    <ActivityIndicator color="#ffffff" size="small" />
-                  ) : (
-                    <Text style={styles.serverModalButtonTextSave}>Kaydet</Text>
-                  )}
-                </TouchableOpacity>
-              </View>
+              <Pressable
+                style={styles.closeButton}
+                onPress={() => !savingServer && setServerModal(false)}
+                focusable={isTV}
+                isTVSelectable={isTV}
+              >
+                <Ionicons name="close" size={20} color="#fff" />
+              </Pressable>
             </View>
-          </TouchableOpacity>
-        </TouchableOpacity>
+
+            <View style={styles.serverModalBody}>
+              <Text style={styles.inputLabel}>{t('settings.serverUrlLabel')}</Text>
+              <TextInput
+                style={styles.serverInput}
+                value={serverUrl}
+                onChangeText={setServerUrl}
+                placeholder="örn: zunexle.live"
+                placeholderTextColor="#64748b"
+                autoCapitalize="none"
+                autoCorrect={false}
+                editable={!savingServer}
+              />
+              <Text style={styles.inputHint}>
+                {t('settings.serverUrlHint')}
+              </Text>
+            </View>
+
+            <View style={styles.serverModalFooter}>
+              <Pressable
+                style={[styles.serverModalButton, styles.serverModalButtonCancel, isTV && focusedItemId === 'cancelServerEdit' && styles.modalOptionFocused]}
+                onPress={() => setServerModal(false)}
+                disabled={savingServer}
+                focusable={isTV}
+                isTVSelectable={isTV}
+                hasTVPreferredFocus={isTV && serverModal}
+                onFocus={isTV ? () => setFocusedItemId('cancelServerEdit') : undefined}
+                onBlur={isTV ? () => setFocusedItemId(null) : undefined}
+              >
+                <Text style={styles.serverModalButtonTextCancel}>{t('settings.btnCancel')}</Text>
+              </Pressable>
+
+              <Pressable
+                style={[
+                  styles.serverModalButton,
+                  styles.serverModalButtonSave,
+                  savingServer && styles.serverModalButtonDisabled,
+                  isTV && focusedItemId === 'saveServerEdit' && styles.modalOptionFocused,
+                ]}
+                onPress={handleSaveServer}
+                disabled={savingServer}
+                focusable={isTV}
+                isTVSelectable={isTV}
+                onFocus={isTV ? () => setFocusedItemId('saveServerEdit') : undefined}
+                onBlur={isTV ? () => setFocusedItemId(null) : undefined}
+              >
+                {savingServer ? (
+                  <ActivityIndicator color="#ffffff" size="small" />
+                ) : (
+                  <Text style={styles.serverModalButtonTextSave}>{t('settings.btnSave')}</Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </Pressable>
+      </Modal>
+
+      {/* App Language Modal */}
+      <Modal visible={appLanguageModal} transparent animationType="fade">
+        <Pressable style={styles.modalOverlay} onPress={() => setAppLanguageModal(false)}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeaderWithClose}>
+              <View>
+                <Text style={styles.modalTitle}>{t('settings.languageTitle')}</Text>
+                <Text style={styles.modalSubtitle}>{t('settings.languageSubtitle')}</Text>
+              </View>
+              <Pressable 
+                onPress={() => setAppLanguageModal(false)} 
+                style={styles.closeButton}
+                focusable={isTV}
+                isTVSelectable={isTV}
+              >
+                <Ionicons name="close" size={24} color="#fff" />
+              </Pressable>
+            </View>
+            <ScrollView style={styles.languageScrollView}>
+              <View style={styles.modalOptions}>
+                {SUPPORTED_LANGUAGES.map((lang) => (
+                  <Pressable
+                    key={lang.code}
+                    onPress={async () => {
+                      await changeLanguage(lang.code);
+                      setAppLanguageModal(false);
+                    }}
+                    style={[
+                      styles.modalOption,
+                      i18n.language === lang.code && styles.modalOptionActive,
+                    ]}
+                  >
+                    <View style={styles.modalOptionContent}>
+                      <Text style={[styles.modalOptionLabel, i18n.language === lang.code && styles.modalOptionLabelActive]}>
+                        {lang.label}
+                      </Text>
+                      {i18n.language === lang.code && <Text style={styles.modalOptionSubtitle}>{t('settings.languageRestart')}</Text>}
+                    </View>
+                    {i18n.language === lang.code && (
+                      <Ionicons name="checkmark-circle" size={24} color="#3b82f6" />
+                    )}
+                  </Pressable>
+                ))}
+              </View>
+            </ScrollView>
+          </View>
+        </Pressable>
       </Modal>
 
       {/* Sync Loading Overlay */}
@@ -869,8 +1213,8 @@ const SettingsScreen: React.FC = () => {
         <View style={styles.loadingOverlay}>
           <View style={styles.loadingContent}>
             <ActivityIndicator size="large" color="#3b82f6" />
-            <Text style={styles.loadingText}>İçerikler Güncelleniyor...</Text>
-            <Text style={styles.loadingSubText}>Lütfen bekleyin</Text>
+            <Text style={styles.loadingText}>{t('settings.syncOverlayTitle')}</Text>
+            <Text style={styles.loadingSubText}>{t('settings.syncOverlayDesc')}</Text>
           </View>
         </View>
       )}
@@ -950,6 +1294,11 @@ const styles = StyleSheet.create({
   settingItemDanger: {
     backgroundColor: 'rgba(239, 68, 68, 0.05)',
   },
+  settingItemFocused: {
+    borderWidth: 2,
+    borderColor: '#14b8a6',
+    transform: [{ scale: 1.02 }],
+  },
   settingLeft: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1011,7 +1360,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     width: '100%',
     maxWidth: 400,
-    overflow: 'hidden',
+    overflow: 'visible',
     borderWidth: 1,
     borderColor: 'rgba(148, 163, 184, 0.2)',
   },
@@ -1020,6 +1369,20 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(148, 163, 184, 0.1)',
     backgroundColor: '#0f172a',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+  },
+  modalHeaderWithClose: {
+    padding: 20,
+    paddingRight: 64, // Çarpı butonu için sağdan boşluk bırak
+    minHeight: 84, // Ortalamak ve kaymayı önlemek için min height
+    justifyContent: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(148, 163, 184, 0.1)',
+    backgroundColor: '#0f172a',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    position: 'relative',
   },
   modalTitle: {
     fontSize: 18,
@@ -1033,17 +1396,27 @@ const styles = StyleSheet.create({
     color: '#94a3b8',
   },
   modalOptions: {
-    padding: 8,
+    padding: 12,
+    backgroundColor: '#1e293b',
+    borderBottomLeftRadius: 16,
+    borderBottomRightRadius: 16,
   },
   modalOption: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 16,
+    padding: 14,
+    marginVertical: 2,
     borderRadius: 12,
+    borderWidth: 2,
+    borderColor: 'transparent',
   },
   modalOptionActive: {
     backgroundColor: 'rgba(59, 130, 246, 0.1)',
+  },
+  modalOptionFocused: {
+    borderColor: '#14b8a6',
+    backgroundColor: 'rgba(20, 184, 166, 0.1)',
   },
   modalOptionContent: {
     flex: 1,
@@ -1147,6 +1520,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
     borderColor: 'rgba(148, 163, 184, 0.2)',
+  },
+  // Dil seçici modal stilleri
+  languageModalContent: {
+    width: '60%',
+    maxHeight: '80%',
+    backgroundColor: '#1e293b',
+    borderRadius: 20,
+    padding: 20,
+  },
+  closeButton: {
+    position: 'absolute',
+    top: 20,
+    right: 16,
+    padding: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 20,
+    zIndex: 10,
+  },
+  languageScrollView: {
+    maxHeight: 350,
   },
 });
 

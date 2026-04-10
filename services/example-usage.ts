@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Xtream Codes IPTV Services Kullanım Örnekleri
  * 

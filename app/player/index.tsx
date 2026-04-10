@@ -28,6 +28,7 @@ import Slider from '@react-native-community/slider';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { runOnJS } from 'react-native-reanimated';
 import * as Brightness from 'expo-brightness';
+import { useTranslation } from 'react-i18next';
 
 import { storageService, databaseService } from '@/services';
 import { fonts } from '@/theme/fonts';
@@ -51,6 +52,7 @@ interface OnErrorData {
 }
 
 const PlayerScreen: React.FC = () => {
+  const { t } = useTranslation();
   const router = useRouter();
   const params = useLocalSearchParams();
   const videoRef = useRef<VideoRef>(null);
@@ -71,6 +73,8 @@ const PlayerScreen: React.FC = () => {
   const [currentTime, setCurrentTime] = useState(0);
   const [seeking, setSeeking] = useState(false);
   const [buffering, setBuffering] = useState(false);
+  const [retryKey, setRetryKey] = useState(0); // Video bileşenini yeniden mount etmek için
+  const retryCount = useRef(0); // Otomatik yeniden deneme sayacı
   const [resumeChecked, setResumeChecked] = useState(false);
 
   // Gesture State
@@ -111,12 +115,14 @@ const PlayerScreen: React.FC = () => {
   const [skipForwardFocused, setSkipForwardFocused] = useState(false);
   const [sliderFocused, setSliderFocused] = useState(false);
   const [dialogEnhancement, setDialogEnhancement] = useState(false);
+  const [preferredLanguage, setPreferredLanguage] = useState<string>('off');
 
   // Tracks
   const [audioTracks, setAudioTracks] = useState<Track[]>([]);
   const [textTracks, setTextTracks] = useState<Track[]>([]);
   const [selectedAudioTrack, setSelectedAudioTrack] = useState<number>(0);
   const [selectedTextTrack, setSelectedTextTrack] = useState<number>(-1);
+  const autoTrackSelected = useRef<boolean>(false);
 
   // Hide controls timer
   const hideControlsTimer = useRef<NodeJS.Timeout | null>(null);
@@ -136,11 +142,43 @@ const PlayerScreen: React.FC = () => {
     };
   }, []);
 
-  // Audio Boost Effect
+  // 🌐 Akıllı Ses Kanalı Seçimi (Auto-select based on preference)
   useEffect(() => {
-    if (audioSessionId !== null) {
-      AudioBooster.setBoost(audioSessionId, audioBoostLevel);
+    if (audioTracks.length > 1 && preferredLanguage !== 'off' && !autoTrackSelected.current) {
+      // Dil kodu eşleştirme haritası
+      const LANGUAGE_MAP: Record<string, string[]> = {
+        'tur': ['tur', 'tr', 'turkish', 'türkçe', 'turkce', 'tr-tr'],
+        'eng': ['eng', 'en', 'english', 'inglés', 'en-us', 'en-gb'],
+        'ger': ['ger', 'de', 'deu', 'german', 'deutsch', 'de-de'],
+        'fra': ['fra', 'fr', 'fre', 'french', 'français', 'fr-fr'],
+        'spa': ['spa', 'es', 'spanish', 'español', 'castilian', 'es-es'],
+        'ara': ['ara', 'ar', 'arabic', 'العربية'],
+        'rus': ['rus', 'ru', 'russian', 'русский', 'ru-ru'],
+        'original': ['original', 'orig', 'default', 'und'],
+      };
+
+      const targetVariants = LANGUAGE_MAP[preferredLanguage] || [];
+
+      // Dil eşleşmesi ara
+      const matchedIndex = audioTracks.findIndex(t => {
+        const lang = (t.language || '').toLowerCase();
+        const title = (t.title || '').toLowerCase();
+        return targetVariants.some(v => lang.includes(v) || title.includes(v));
+      });
+
+      if (matchedIndex !== -1) {
+        console.log(`🌐 Otomatik Dil Seçimi: ${audioTracks[matchedIndex].title} (${audioTracks[matchedIndex].language})`);
+        setSelectedAudioTrack(matchedIndex);
+        autoTrackSelected.current = true;
+      }
     }
+  }, [audioTracks, preferredLanguage]);
+
+  // Audio Boost Effect - audioSessionId olmasa bile global (0) session ile çalışır
+  useEffect(() => {
+    const sessionId = audioSessionId ?? 0; // null ise 0 (global) kullan
+    console.log(`🎧 Audio Boost Effect: sessionId=${sessionId}, level=${audioBoostLevel}`);
+    AudioBooster.setBoost(sessionId, audioBoostLevel);
   }, [audioSessionId, audioBoostLevel]);
 
   // Auto-hide controls effect - kontroller görünürken ve video oynuyorken 4 saniye sonra gizle
@@ -176,6 +214,7 @@ const PlayerScreen: React.FC = () => {
       const audioSettings = await storageService.getAudioSettings();
       setAudioBoostLevel(audioSettings.boostLevel);
       setDialogEnhancement(audioSettings.dialogueEnhance);
+      setPreferredLanguage(audioSettings.preferredLanguage);
 
       // Ses seviyesini ayarla (Boost varsa artır)
       // Android'de volume 1.0 üzeri çalışmayabilir ama yine de set ediyoruz
@@ -231,16 +270,16 @@ const PlayerScreen: React.FC = () => {
         const seconds = Math.floor(continueWatching.currentTime % 60);
 
         Alert.alert(
-          '⏯️ İzlemeye Devam Et',
-          `Kaldığınız yerden (${minutes}:${seconds.toString().padStart(2, '0')}) devam etmek ister misiniz?`,
+          t('player.resumeTitle'),
+          t('player.resumeMessage', { time: `${minutes}:${seconds.toString().padStart(2, '0')}` }),
           [
             {
-              text: 'Baştan Başla',
+              text: t('player.resumeStartOver'),
               onPress: () => setResumeChecked(true),
               style: 'cancel',
             },
             {
-              text: 'Devam Et',
+              text: t('player.resumeContinue'),
               onPress: () => {
                 setCurrentTime(continueWatching.currentTime);
                 videoRef.current?.seek(continueWatching.currentTime);
@@ -399,22 +438,7 @@ const PlayerScreen: React.FC = () => {
         selected: index === 0,
       }));
       setAudioTracks(tracks);
-
-      // Diyalog İyileştirme Mantığı
-      if (dialogEnhancement && tracks.length > 1) {
-        // Basit mantık: Genellikle son kanallar veya özel isimlendirilmiş kanallar (örn: "Dialog", "Stereo") daha temiz olabilir.
-        // Veya surround (AC3/5.1) yerine Stereo (AAC) tercih edilebilir.
-        // Şimdilik deneysel olarak: Eğer "AAC" veya "Stereo" içeren bir track varsa onu seçelim.
-        const betterTrackIndex = tracks.findIndex(t =>
-          (t.title && (t.title.includes('AAC') || t.title.includes('Stereo'))) ||
-          (t.language && t.language.includes('eng')) // Veya orijinal dili tercih et
-        );
-
-        if (betterTrackIndex !== -1 && betterTrackIndex !== 0) {
-          console.log('🗣️ Diyalog iyileştirme: Track değiştirildi ->', tracks[betterTrackIndex].title);
-          setSelectedAudioTrack(betterTrackIndex);
-        }
-      }
+      autoTrackSelected.current = false;
     }
 
     if (data.textTracks?.length > 0) {
@@ -433,16 +457,75 @@ const PlayerScreen: React.FC = () => {
 
   const handleBuffer = (data: OnBufferData) => setBuffering(data.isBuffering);
 
-  const handleError = (error: OnErrorData) => {
-    console.error('❌ Video error:', error);
+  const handleError = (errorData: any) => {
+    const errorStr = JSON.stringify(errorData);
+    console.error('❌ Video error:', errorStr);
+    console.error('🔗 Stream URL:', streamUrl); // URL'yi tam logla
+
+    // HTTP hata kodlarını kontrol et (403, 404, 401 vb.)
+    const errorStackTrace = errorData?.error?.errorStackTrace || '';
+    const errorString = errorData?.error?.errorString || '';
+    const httpCodeMatch = errorStackTrace.match(/Response code: (\d+)/);
+    const httpCode = httpCodeMatch ? parseInt(httpCodeMatch[1]) : null;
+
+    // HTTP hatası varsa retry yapmak anlamsız - direkt kullanıcıya göster
+    if (httpCode) {
+      setLoading(false);
+      console.error(`🚫 HTTP ${httpCode} hatası - yeniden deneme yapılmıyor`);
+      
+      const httpMessages: Record<number, string> = {
+        401: '🔑 Yetkilendirme hatası.\n\nKullanıcı adı veya şifre yanlış olabilir.\nLütfen çıkış yapıp tekrar giriş yapın.',
+        403: '🚫 Erişim engellendi (403 Forbidden).\n\nOlası nedenler:\n• Abonelik süresi dolmuş olabilir\n• Başka bir cihazda aktif oturum olabilir\n• IPTV sağlayıcınız bu içeriğe erişimi engellemiş olabilir\n• IP adresiniz değişmiş olabilir',
+        404: '🔍 İçerik bulunamadı (404).\n\nBu video sunucuda mevcut değil.\nİçerik kaldırılmış olabilir.',
+        500: '⚠️ Sunucu hatası (500).\n\nIPTV sunucusunda bir sorun var.\nDaha sonra tekrar deneyin.',
+        502: '⚠️ Sunucu yanıt vermiyor (502).\n\nIPTV sunucusu şu anda erişilemez.',
+        503: '⚠️ Sunucu bakımda (503).\n\nDaha sonra tekrar deneyin.',
+      };
+
+      const userMsg = httpMessages[httpCode] || `⚠️ Sunucu hatası (HTTP ${httpCode}).\n\nLütfen daha sonra tekrar deneyin.`;
+      setError(`${userMsg}\n\nURL: ${streamUrl.substring(0, 80)}...`);
+      return;
+    }
+
+    // HTTP hatası değilse (codec/network sorunu olabilir) - fallback dene
+    // İlk hatada otomatik olarak SW decoder ile tekrar dene
+    if (retryCount.current === 0 && hwDecoder) {
+      retryCount.current++;
+      console.log('🔄 HW decoder başarısız, SW decoder ile yeniden deneniyor...');
+      setHwDecoder(false);
+      setRetryKey(prev => prev + 1);
+      return;
+    }
+    
+    // İkinci denemede farklı buffer ayarları ile dene
+    if (retryCount.current === 1) {
+      retryCount.current++;
+      console.log('🔄 Buffer ayarları değiştirilerek yeniden deneniyor...');
+      setBufferConfig({
+        minBufferMs: 30000,
+        maxBufferMs: 120000,
+        bufferForPlaybackMs: 5000,
+        bufferForPlaybackAfterRebufferMs: 10000,
+      });
+      setRetryKey(prev => prev + 1);
+      return;
+    }
+    
     setLoading(false);
-    const errorMsg = error.error?.localizedDescription || 'Video yüklenemedi';
-    setError(`${errorMsg}\n\nURL: ${streamUrl.substring(0, 50)}...`);
+    const errorMsg = errorData?.error?.localizedDescription 
+      || errorData?.error?.cause?.message 
+      || errorData?.error?.errorException
+      || t('player.errorTitle');
+    const errorCode = errorData?.error?.errorCode || t('common.unknown');
+    setError(`${errorMsg}\n\nHata Kodu: ${errorCode}\nURL: ${streamUrl.substring(0, 80)}...`);
   };
 
   const handleRetry = () => {
     setError(null);
     setLoading(true);
+    retryCount.current = 0;
+    setHwDecoder(true); // HW decoder'ı resetle
+    setRetryKey(prev => prev + 1); // Video bileşenini yeniden mount et
   };
 
   const handleBack = async () => {
@@ -456,10 +539,10 @@ const PlayerScreen: React.FC = () => {
       if (await Linking.canOpenURL(vlcUrl)) {
         await Linking.openURL(vlcUrl);
       } else {
-        Alert.alert('Hata', 'VLC Player yüklü değil');
+        Alert.alert(t('common.error'), t('player.vlcNotInstalled'));
       }
     } catch (error) {
-      Alert.alert('Hata', 'VLC açılamadı');
+      Alert.alert(t('common.error'), t('player.vlcOpenError'));
     }
   };
 
@@ -476,20 +559,20 @@ const PlayerScreen: React.FC = () => {
       <View style={styles.errorContainer}>
         <StatusBar hidden />
         <Ionicons name="alert-circle-outline" size={80} color="#ef4444" />
-        <Text style={styles.errorTitle}>Video Yüklenemedi</Text>
+        <Text style={styles.errorTitle}>{t('player.errorTitle')}</Text>
         <Text style={styles.errorMessage}>{error}</Text>
         <View style={styles.errorButtons}>
           <TouchableOpacity style={styles.errorButton} onPress={handleRetry}>
             <Ionicons name="refresh" size={20} color="#fff" />
-            <Text style={styles.errorButtonText}>Yeniden Dene</Text>
+            <Text style={styles.errorButtonText}>{t('player.retry')}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={[styles.errorButton, styles.errorButtonSecondary]} onPress={handleBack}>
             <Ionicons name="arrow-back" size={20} color="#fff" />
-            <Text style={styles.errorButtonText}>Geri Dön</Text>
+            <Text style={styles.errorButtonText}>{t('player.goBack')}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.modalItem} onPress={handleOpenInVLC}>
             <Ionicons name="open-outline" size={24} color="#3b82f6" />
-            <Text style={[styles.modalItemLabel, { color: '#3b82f6', marginLeft: 12 }]}>VLC'de Aç</Text>
+            <Text style={[styles.modalItemLabel, { color: '#3b82f6', marginLeft: 12 }]}>{t('player.openInVLC')}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -504,8 +587,17 @@ const PlayerScreen: React.FC = () => {
         <GestureDetector gesture={composedGestures}>
           <View style={styles.videoContainer}>
             <Video
+              key={`video-player-${retryKey}`}
               ref={videoRef}
-              source={{ uri: streamUrl }}
+              source={{
+                uri: streamUrl,
+                headers: {
+                  'User-Agent': 'ExoPlayer/2.x (Linux; Android)',
+                },
+                // Stream türüne göre MIME type belirle
+                ...(streamUrl.includes('.m3u8') ? { type: 'application/x-mpegURL' } : {}),
+                ...(streamUrl.includes('.ts') && !streamUrl.includes('.tsx') ? { type: 'video/mp2t' } : {}),
+              }}
               style={styles.video}
               paused={paused}
               resizeMode={resizeMode}
@@ -759,17 +851,34 @@ const PlayerScreen: React.FC = () => {
                 <Text style={styles.modalItemValue}>{playbackRate}x</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.modalItem} onPress={() => {
-                const levels = [1.0, 1.5, 2.0, 3.0];
-                const currentIndex = levels.findIndex(l => Math.abs(l - audioBoostLevel) < 0.1);
-                const nextLevel = levels[(currentIndex + 1) % levels.length];
-                setAudioBoostLevel(nextLevel);
-              }}>
-                <Text style={styles.modalItemLabel}>Ses Güçlendirme 🔊</Text>
-                <Text style={styles.modalItemValue}>
-                  {audioBoostLevel <= 1.0 ? 'Kapalı' : audioBoostLevel <= 1.5 ? 'Hafif' : audioBoostLevel <= 2.0 ? 'Güçlü' : 'Maksimum'}
-                </Text>
-              </TouchableOpacity>
+              <View style={styles.modalSliderItem}>
+                <View style={styles.modalSliderHeader}>
+                  <Text style={styles.modalItemLabel}>Ses Güçlendirme 🔊</Text>
+                  <Text style={styles.modalItemValue}>
+                    {audioBoostLevel <= 1.0 ? 'Kapalı' : `+${Math.round((audioBoostLevel - 1) * 100)}%`}
+                  </Text>
+                </View>
+                <Slider
+                  style={styles.boostSlider}
+                  minimumValue={1.0}
+                  maximumValue={3.0}
+                  step={0.1}
+                  value={audioBoostLevel}
+                  onValueChange={(value) => setAudioBoostLevel(value)}
+                  onSlidingComplete={(value) => {
+                    // Değeri kaydet
+                    storageService.setItem('audio_boost_level', value.toString());
+                  }}
+                  minimumTrackTintColor="#3b82f6"
+                  maximumTrackTintColor="rgba(255, 255, 255, 0.3)"
+                  thumbTintColor="#fff"
+                />
+                <View style={styles.sliderLabels}>
+                  <Text style={styles.sliderLabel}>1x</Text>
+                  <Text style={styles.sliderLabel}>2x</Text>
+                  <Text style={styles.sliderLabel}>3x</Text>
+                </View>
+              </View>
             </View>
           </TouchableOpacity>
         </TouchableOpacity>
@@ -871,6 +980,12 @@ const styles = StyleSheet.create({
   tvFocusLayer: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center', backgroundColor: 'transparent' },
   tvFocusHint: { alignItems: 'center', opacity: 0.5 },
   tvFocusHintText: { color: 'rgba(255,255,255,0.5)', fontSize: 14, fontFamily: fonts.regular, marginTop: 8 },
+  // Slider için stiller
+  modalSliderItem: { paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: 'rgba(255, 255, 255, 0.1)' },
+  modalSliderHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  boostSlider: { width: '100%', height: 40 },
+  sliderLabels: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 4 },
+  sliderLabel: { color: 'rgba(255, 255, 255, 0.5)', fontSize: 12, fontFamily: fonts.regular },
 });
 
 export default PlayerScreen;

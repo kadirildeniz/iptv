@@ -324,10 +324,21 @@ class SyncService {
         return;
       }
 
+      // Kategori ID -> Kategori Adı eşleştirmesi için kategorileri al
+      const movieCategories = await database.get<MovieCategoryModel>('movie_categories').query().fetch();
+      const categoryMap = new Map<string, string>();
+      movieCategories.forEach((cat) => {
+        categoryMap.set(cat.categoryId, cat.categoryName);
+      });
+      console.log(`📂 ${categoryMap.size} kategori eşleştirildi`);
+
       const batchOps: any[] = [];
       const moviesCollection = database.get<MovieModel>('movies');
 
       for (const apiMovie of moviesToCreate) {
+        // Kategori adını genre olarak kullan
+        const categoryName = categoryMap.get(apiMovie.category_id) || '';
+
         batchOps.push(
           moviesCollection.prepareCreate((movie) => {
             movie.streamId = apiMovie.stream_id;
@@ -342,6 +353,8 @@ class SyncService {
             movie.containerExtension = apiMovie.container_extension || undefined;
             movie.customSid = apiMovie.custom_sid || undefined;
             movie.directSource = apiMovie.direct_source || undefined;
+            // Kategori adını genre olarak kaydet
+            movie.genre = categoryName || undefined;
             movie.cachedAt = new Date();
           })
         );

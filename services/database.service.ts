@@ -622,6 +622,104 @@ class DatabaseService {
       return { channels: 0, movies: 0, series: 0 };
     }
   }
+
+  // ==================== DEBUG FONKSIYONLARI ====================
+
+  /**
+   * WatermelonDB tüm verileri debug et
+   */
+  async debugDatabase(): Promise<void> {
+    if (!database) {
+      console.log('❌ Database yok');
+      return;
+    }
+
+    console.log('\n==================== WATERMELONDB DEBUG ====================');
+
+    const tables = [
+      'channels',
+      'movies',
+      'series',
+      'live_categories',
+      'movie_categories',
+      'series_categories',
+      'favorites',
+      'watch_history',
+      'continue_watching',
+      'episode_progress',
+      'epg_programs',
+    ];
+
+    for (const table of tables) {
+      try {
+        const count = await database.get(table).query().fetchCount();
+        console.log(`\n📊 ${table}: ${count} kayıt`);
+
+        // İlk 3 kaydı göster
+        if (count > 0) {
+          const items = await database.get(table).query().fetch();
+          const samples = items.slice(0, 3);
+
+          samples.forEach((item: any, index: number) => {
+            // Sadece önemli alanları göster
+            const summary: any = { id: item.id };
+
+            // Tablo tipine göre önemli alanları ekle
+            if (item.name) summary.name = item.name;
+            if (item.title) summary.title = item.title;
+            if (item.itemId) summary.itemId = item.itemId;
+            if (item.categoryId) summary.categoryId = item.categoryId;
+            if (item.categoryName) summary.categoryName = item.categoryName;
+            if (item.genre) summary.genre = item.genre;
+            if (item.streamId) summary.streamId = item.streamId;
+            if (item.seriesId) summary.seriesId = item.seriesId;
+
+            console.log(`  [${index + 1}] ${JSON.stringify(summary)}`);
+          });
+
+          if (count > 3) {
+            console.log(`  ... ve ${count - 3} kayıt daha`);
+          }
+        }
+      } catch (error) {
+        console.log(`❌ ${table} tablosu okunamadı:`, error);
+      }
+    }
+
+    console.log('\n=============================================================\n');
+  }
+
+  /**
+   * Belirli bir tablonun tüm verilerini getir (debug için)
+   */
+  async debugTable(tableName: string, limit: number = 10): Promise<void> {
+    if (!database) {
+      console.log('❌ Database yok');
+      return;
+    }
+
+    console.log(`\n==================== ${tableName.toUpperCase()} TABLE ====================`);
+
+    try {
+      const count = await database.get(tableName).query().fetchCount();
+      console.log(`📊 Toplam: ${count} kayıt`);
+
+      const items = await database.get(tableName).query().fetch();
+      const samples = items.slice(0, limit);
+
+      samples.forEach((item: any, index: number) => {
+        console.log(`\n[${index + 1}]`, JSON.stringify(item._raw, null, 2));
+      });
+
+      if (count > limit) {
+        console.log(`\n... ve ${count - limit} kayıt daha`);
+      }
+    } catch (error) {
+      console.log(`❌ Tablo okunamadı:`, error);
+    }
+
+    console.log('\n=============================================================\n');
+  }
 }
 
 export default new DatabaseService();

@@ -175,21 +175,44 @@ class StorageService {
     }
   }
   /**
-   * Ses ayarlarını getir
+   * Ses ayarlarını getir (dil tercihi dahil)
    */
-  async getAudioSettings(): Promise<{ boostLevel: number; dialogueEnhance: boolean }> {
+  async getAudioSettings(): Promise<{
+    boostLevel: number;
+    dialogueEnhance: boolean;
+    preferredLanguage: string;
+  }> {
     try {
       const boostLevel = await this.getItem<string>('audio_boost_level');
       const dialogueEnhance = await this.getItem<string>('dialog_enhancement');
+      const preferredLanguage = await this.getItem<string>('preferred_audio_language');
 
       return {
         boostLevel: boostLevel ? parseFloat(boostLevel) : 1.0,
         dialogueEnhance: dialogueEnhance === 'true',
+        preferredLanguage: preferredLanguage || 'off', // Default: off (kapalı)
       };
     } catch (error) {
       console.error('Get audio settings error:', error);
-      return { boostLevel: 1.0, dialogueEnhance: false };
+      return { boostLevel: 1.0, dialogueEnhance: false, preferredLanguage: 'off' };
     }
+  }
+
+  /**
+   * Tercih edilen ses dilini kaydet
+   * Dil kodları: 'tur' | 'eng' | 'ger' | 'fra' | 'spa' | 'ara' | 'original' | 'off'
+   */
+  async setPreferredAudioLanguage(lang: string): Promise<void> {
+    await this.setItem('preferred_audio_language', lang);
+    console.log(`🌐 Tercih edilen ses dili: ${lang}`);
+  }
+
+  /**
+   * Tercih edilen ses dilini getir
+   */
+  async getPreferredAudioLanguage(): Promise<string> {
+    const lang = await this.getItem<string>('preferred_audio_language');
+    return lang || 'off';
   }
 
   /**
@@ -215,6 +238,66 @@ class StorageService {
    */
   async saveBufferMode(mode: 'low' | 'normal' | 'high'): Promise<void> {
     await this.setItem('buffer_mode', mode);
+  }
+
+  // ==================== DEBUG FONKSIYONLARI ====================
+
+  /**
+   * Tüm AsyncStorage verilerini konsola yazdır
+   */
+  async debugAsyncStorage(): Promise<void> {
+    try {
+      console.log('\n==================== ASYNC STORAGE DEBUG ====================');
+      const keys = await AsyncStorage.getAllKeys();
+      console.log(`📦 Toplam ${keys.length} anahtar bulundu:`);
+
+      for (const key of keys) {
+        const value = await AsyncStorage.getItem(key);
+        console.log(`\n🔑 ${key}:`);
+        try {
+          const parsed = JSON.parse(value || '');
+          console.log(JSON.stringify(parsed, null, 2));
+        } catch {
+          console.log(value);
+        }
+      }
+      console.log('\n=============================================================\n');
+    } catch (error) {
+      console.error('Debug AsyncStorage hatası:', error);
+    }
+  }
+
+  /**
+   * SecureStore verilerini konsola yazdır
+   */
+  async debugSecureStore(): Promise<void> {
+    try {
+      console.log('\n==================== SECURE STORE DEBUG ====================');
+      const credentials = await SecureStore.getItemAsync(KEYS.CREDENTIALS);
+      if (credentials) {
+        const parsed = JSON.parse(credentials);
+        console.log('🔐 Credentials:');
+        console.log({
+          host: parsed.host,
+          username: parsed.username,
+          password: '******', // Şifreyi gizle
+          iptvName: parsed.iptvName,
+        });
+      } else {
+        console.log('❌ Credentials bulunamadı');
+      }
+      console.log('\n=============================================================\n');
+    } catch (error) {
+      console.error('Debug SecureStore hatası:', error);
+    }
+  }
+
+  /**
+   * Tüm debug verilerini yazdır (AsyncStorage + SecureStore)
+   */
+  async debugAll(): Promise<void> {
+    await this.debugAsyncStorage();
+    await this.debugSecureStore();
   }
 }
 

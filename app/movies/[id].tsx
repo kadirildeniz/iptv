@@ -14,17 +14,20 @@ import {
   TextInput,
   Modal,
   Dimensions,
+  Linking,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { movieService, databaseService, database, storageService, tmdbService, type Movie } from '@/services';
-import YoutubePlayer from 'react-native-youtube-iframe';
 import { fonts } from '@/theme/fonts';
 import apiClient from '@/services/api/client';
 import { buildMovieUrl } from '@/services/api/endpoints';
 import MovieModel from '@/services/database/models/Movie';
+import { useTranslation } from 'react-i18next';
 
 const MovieDetail: React.FC = () => {
+  const { t } = useTranslation();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const [movie, setMovie] = useState<Movie | null>(null);
@@ -37,7 +40,6 @@ const MovieDetail: React.FC = () => {
   const [isFavorite, setIsFavorite] = useState(false);
   const [isTogglingFavorite, setIsTogglingFavorite] = useState(false);
   const [trailerKey, setTrailerKey] = useState<string | null>(null);
-  const [isTrailerVisible, setIsTrailerVisible] = useState(false);
   const [loadingTrailer, setLoadingTrailer] = useState(false);
   // TV Focus States
   const [backFocused, setBackFocused] = useState(false);
@@ -259,7 +261,7 @@ const MovieDetail: React.FC = () => {
       <SafeAreaView style={styles.container}>
         <View style={styles.center}>
           <ActivityIndicator size="large" color="#0ea5e9" />
-          <Text style={styles.loadingText}>Film yükleniyor...</Text>
+          <Text style={styles.loadingText}>{t('movieDetails.loadingMovie')}</Text>
         </View>
       </SafeAreaView>
     );
@@ -274,9 +276,9 @@ const MovieDetail: React.FC = () => {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.center}>
-          <Text style={styles.errorText}>❌ {error || 'Film bulunamadı'}</Text>
+          <Text style={styles.errorText}>❌ {error || t('movieDetails.movieNotFound')}</Text>
           <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-            <Text style={styles.backButtonText}>Geri Dön</Text>
+            <Text style={styles.backButtonText}>{t('player.goBack')}</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -371,9 +373,9 @@ const MovieDetail: React.FC = () => {
   const handleWatchTrailer = async () => {
     if (!movie) return;
 
-    // Eğer daha önce çekildiyse direkt aç
+    // Eğer daha önce çekildiyse direkt YouTube uygulamasında aç
     if (trailerKey) {
-      setIsTrailerVisible(true);
+      openInYouTube(trailerKey);
       return;
     }
 
@@ -382,15 +384,48 @@ const MovieDetail: React.FC = () => {
       const key = await tmdbService.getTrailerVideo(movie.name);
       if (key) {
         setTrailerKey(key);
-        setIsTrailerVisible(true);
+        openInYouTube(key);
       } else {
-        alert('Fragman bulunamadı.');
+        Alert.alert(t('movieDetails.watchTrailer'), t('movieDetails.searching'));
       }
     } catch (e) {
       console.error('Fragman hatası:', e);
-      alert('Fragman yüklenirken hata oluştu.');
+      Alert.alert(t('common.error'), t('movieDetails.searching'));
     } finally {
       setLoadingTrailer(false);
+    }
+  };
+
+  const openInYouTube = async (videoId: string) => {
+    // YouTube TV uygulaması için özel URL
+    const youtubeAppUrl = `https://www.youtube.com/tv#/watch?v=${videoId}`;
+    const youtubeIntentUrl = `intent://www.youtube.com/watch?v=${videoId}#Intent;package=com.google.android.youtube.tv;scheme=https;end`;
+    const youtubeDeepLink = `vnd.youtube://${videoId}`;
+
+    try {
+      // Önce YouTube TV app intent'ini dene
+      const canOpenIntent = await Linking.canOpenURL(youtubeIntentUrl);
+      if (canOpenIntent) {
+        await Linking.openURL(youtubeIntentUrl);
+        return;
+      }
+
+      // YouTube deep link dene
+      const canOpenDeepLink = await Linking.canOpenURL(youtubeDeepLink);
+      if (canOpenDeepLink) {
+        await Linking.openURL(youtubeDeepLink);
+        return;
+      }
+
+      // YouTube TV URL'sini dene
+      await Linking.openURL(youtubeAppUrl);
+    } catch (error) {
+      console.error('YouTube açma hatası:', error);
+      Alert.alert(
+        t('movieDetails.youtubeRequired'),
+        t('movieDetails.youtubeRequiredMsg'),
+        [{ text: t('common.ok') }]
+      );
     }
   };
 
@@ -443,7 +478,7 @@ const MovieDetail: React.FC = () => {
               </View>
               <Text style={styles.heroMeta}>
                 {formatDate(baseInfo?.releasedate)} ·{' '}
-                {formatDuration(baseInfo?.duration_secs || baseInfo?.duration)} · {genres[0] || 'Tür Bilinmiyor'}
+                {formatDuration(baseInfo?.duration_secs || baseInfo?.duration)} · {genres[0] || t('movieDetails.unknownGenre')}
               </Text>
 
               <View style={styles.heroActions}>
@@ -475,7 +510,7 @@ const MovieDetail: React.FC = () => {
                   }}
                 >
                   <Ionicons name="play" size={18} color="#ffffff" style={{ marginRight: 8 }} />
-                  <Text style={styles.playButtonText}>Oynat</Text>
+                  <Text style={styles.playButtonText}>{t('movieDetails.play')}</Text>
                 </Pressable>
                 {ratingValue && (
                   <View style={styles.ratingBadge}>
@@ -504,7 +539,7 @@ const MovieDetail: React.FC = () => {
                     <Ionicons name="logo-youtube" size={18} color="#dc2626" style={{ marginRight: 8 }} />
                   )}
                   <Text style={styles.trailerButtonText}>
-                    {loadingTrailer ? 'Aranıyor...' : 'Fragman İzle'}
+                    {loadingTrailer ? t('movieDetails.searching') : t('movieDetails.watchTrailer')}
                   </Text>
                 </Pressable>
               </View>
@@ -517,13 +552,13 @@ const MovieDetail: React.FC = () => {
           {refreshing && !description && (
             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
               <ActivityIndicator size="small" color="#0ea5e9" style={{ marginRight: 10 }} />
-              <Text style={{ color: '#94a3b8', fontSize: 13 }}>Detaylar yükleniyor...</Text>
+              <Text style={{ color: '#94a3b8', fontSize: 13 }}>{t('movieDetails.loadingDetails')}</Text>
             </View>
           )}
 
           {description && (
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Özet</Text>
+              <Text style={styles.sectionTitle}>{t('movieDetails.summary')}</Text>
               <Text style={styles.sectionText}>{description}</Text>
             </View>
           )}
@@ -531,7 +566,7 @@ const MovieDetail: React.FC = () => {
           {(crew || castList.length > 0) && (
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>Oyuncular ve Ekip</Text>
+                <Text style={styles.sectionTitle}>{t('movieDetails.castAndCrew')}</Text>
               </View>
               <View style={styles.castGrid}>
                 {crew && (
@@ -540,7 +575,7 @@ const MovieDetail: React.FC = () => {
                       <Ionicons name="film-outline" size={22} color="#bfdbfe" />
                     </View>
                     <Text style={styles.castName}>{crew}</Text>
-                    <Text style={styles.castRole}>Yönetmen</Text>
+                    <Text style={styles.castRole}>{t('movieDetails.director')}</Text>
                   </View>
                 )}
                 {filteredCast.length > 0 ? (
@@ -603,35 +638,6 @@ const MovieDetail: React.FC = () => {
           )}
         </View>
       </ScrollView>
-
-      <Modal
-        visible={isTrailerVisible}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setIsTrailerVisible(false)}
-      >
-        <View style={styles.modalContainer}>
-          <View style={styles.modalContent}>
-            <YoutubePlayer
-              height={Dimensions.get('window').height}
-              width={Dimensions.get('window').width}
-              play={true}
-              videoId={trailerKey || ''}
-              onChangeState={(state: string) => {
-                if (state === 'ended') {
-                  setIsTrailerVisible(false);
-                }
-              }}
-            />
-            <TouchableOpacity
-              style={styles.closeModalButton}
-              onPress={() => setIsTrailerVisible(false)}
-            >
-              <Ionicons name="close" size={32} color="#fff" />
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
     </SafeAreaView>
   );
 };
@@ -959,6 +965,50 @@ const styles = StyleSheet.create({
     padding: 10,
     backgroundColor: 'rgba(0,0,0,0.5)',
     borderRadius: 25,
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  closeModalButtonFocused: {
+    borderColor: '#14b8a6',
+    backgroundColor: 'rgba(20, 184, 166, 0.3)',
+    transform: [{ scale: 1.1 }],
+  },
+  trailerControls: {
+    position: 'absolute',
+    bottom: 20,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 24,
+    paddingHorizontal: 20,
+  },
+  trailerControlButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 30,
+    borderWidth: 2,
+    borderColor: 'transparent',
+    gap: 8,
+    minWidth: 120,
+  },
+  trailerControlButtonFocused: {
+    borderColor: '#14b8a6',
+    backgroundColor: 'rgba(20, 184, 166, 0.3)',
+    transform: [{ scale: 1.05 }],
+  },
+  trailerCloseButton: {
+    backgroundColor: 'rgba(220, 38, 38, 0.7)',
+  },
+  trailerControlText: {
+    color: '#fff',
+    fontSize: 16,
+    fontFamily: fonts.semibold,
   },
   center: {
     justifyContent: 'center',

@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { View, StyleSheet, Platform, ActivityIndicator, useWindowDimensions, TouchableOpacity, Text, Image, Modal, Pressable } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { FlashList } from '@shopify/flash-list';
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useRouter, Redirect, useFocusEffect } from 'expo-router';
@@ -25,6 +26,7 @@ interface UICategory {
 }
 
 const Series: React.FC = () => {
+  const { t } = useTranslation();
   const router = useRouter();
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -74,7 +76,7 @@ const Series: React.FC = () => {
       await loadFavorites();
       await loadCategories();
     } catch (err) {
-      setError('Bir hata oluştu');
+      setError(t('seriesList.errorOccurred'));
     } finally {
       setLoading(false);
     }
@@ -97,14 +99,14 @@ const Series: React.FC = () => {
 
       const formatted = Array.from(uniqueMap.values()).filter(c => c.id !== 'all' && c.id !== 'favorites');
       setCategories([
-        { id: 'all', name: '📺 TÜM' },
-        { id: 'continue_watching', name: '⏯️ DEVAM ET' },
-        { id: 'favorites', name: '⭐ FAVORİLER' },
+        { id: 'all', name: t('seriesList.allSeries') },
+        { id: 'continue_watching', name: t('seriesList.continueWatching') },
+        { id: 'favorites', name: t('seriesList.favorites') },
         ...formatted,
       ]);
       setSelectedCategory('all');
     } catch (err) {
-      setError('Kategori hatası');
+      setError(t('seriesList.categoryError'));
     }
   };
 
@@ -252,7 +254,7 @@ const Series: React.FC = () => {
                 onBlur={isTV ? () => setBackButtonFocused(false) : undefined}
               >
                 <Ionicons name="arrow-back" size={20} color="#fff" />
-                <Text style={styles.backText}>GERİ DÖN</Text>
+                <Text style={styles.backText}>{t('common.back')}</Text>
               </Pressable>
             </View>
 
@@ -275,16 +277,16 @@ const Series: React.FC = () => {
               <TouchableOpacity onPress={() => setIsCategoryModalVisible(true)}>
                 <Ionicons name="menu" size={28} color="#fff" />
               </TouchableOpacity>
-              <Text style={styles.mobileTitle}>Diziler</Text>
+              <Text style={styles.mobileTitle}>{t('seriesList.title')}</Text>
             </View>
           )}
 
           <SearchHeader
-            title="Diziler"
+            title={t('seriesList.title')}
             onSearch={setSearchQuery}
-            placeholder="Dizi ara..."
+            placeholder={t('seriesList.searchPlaceholder')}
             itemCount={filteredSeries.length}
-            itemLabel="dizi"
+            itemLabel={t('seriesList.serie')}
           />
 
           {loadingSeries ? (

@@ -1,0 +1,9 @@
+{
+  "java.import.exclusions": [
+    "**/node_modules/**"
+  ],
+  "java.project.importOnFirstTimeStartup": "disabled",
+  "search.exclude": {
+    "**/node_modules": true
+  }
+}

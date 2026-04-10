@@ -11,17 +11,26 @@ import {
   KeyboardAvoidingView,
   ScrollView,
   Image,
+  Modal,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
+import { SUPPORTED_LANGUAGES, changeLanguage } from '@/i18n/i18n';
 import authService from '@/services/auth.service';
 import storageService from '@/services/storage.service';
+import apiClient from '@/services/api/client';
+import { database } from '@/services';
+import ChannelModel from '@/services/database/models/Channel';
+import LiveCategoryModel from '@/services/database/models/LiveCategory';
 import { isTV } from '@/utils/responsive';
 
 export default function LoginScreen() {
+  const { t, i18n } = useTranslation();
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(true);
+  const [languageModalVisible, setLanguageModalVisible] = useState(false);
 
   // Form state
   const [iptvName, setIptvName] = useState('');
@@ -52,13 +61,140 @@ export default function LoginScreen() {
 
       return { host, port, protocol };
     } catch (error) {
-      throw new Error('Geçersiz URL formatı. Örnek: example.com:8080 veya http://example.com:8080');
+      throw new Error(t('login.invalidUrl'));
     }
   };
 
+  const handleLanguageChange = async (langCode: string) => {
+    await changeLanguage(langCode);
+    setLanguageModalVisible(false);
+  };
+
+  const getCurrentLanguageLabel = () => {
+    const lang = SUPPORTED_LANGUAGES.find(l => l.code === i18n.language);
+    return lang ? lang.label : '🇬🇧 English';
+  };
+
   const handleLogin = async () => {
+    // === DEMO / İNCELEME MODU (Google Play Review Backdoor) ===
+    // Demo mod kontrolü, form validasyonundan ÖNCE yapılmalı
+    // çünkü demo modda URL ve IPTV ismi zorunlu değil
+    if (username.trim() === 'demo' && password.trim() === '123456') {
+      try {
+        setLoading(true);
+        console.log('🎬 Demo / İnceleme Modu aktif edildi');
+
+        // 1. Sahte credential'ları kaydet (API çağrısı YAPILMAZ)
+        const demoCredentials = {
+          host: 'demo.test',
+          port: '8080',
+          username: 'demo',
+          password: '123456',
+          protocol: 'http' as const,
+        };
+        await apiClient.saveCredentials(demoCredentials);
+        await storageService.saveCredentials({
+          ...demoCredentials,
+          iptvName: iptvName.trim() || 'Demo TV',
+        });
+        await storageService.setItem('baseUrl', 'demo.test:8080');
+        await storageService.markFirstLoginCompleted();
+
+        // 2. WatermelonDB'ye sahte kategori ve kanal verisi yaz
+        if (database) {
+          const db = database; // TypeScript null kontrolü için yerel referans
+          await db.write(async () => {
+            // Önce mevcut demo verilerini temizle (tekrar giriş durumunda)
+            const existingCategories = await db
+              .get<LiveCategoryModel>('live_categories')
+              .query().fetch();
+            const existingChannels = await db
+              .get<ChannelModel>('channels')
+              .query().fetch();
+
+            const deleteOps = [
+              ...existingCategories.map(c => c.prepareDestroyPermanently()),
+              ...existingChannels.map(c => c.prepareDestroyPermanently()),
+            ];
+
+            // Sahte kategori
+            const createCategoryOp = db
+              .get<LiveCategoryModel>('live_categories')
+              .prepareCreate((record: any) => {
+                record.categoryId = '999';
+                record.categoryName = 'Test Kanalları';
+                record.cachedAt = Date.now();
+              });
+
+            // Sahte Kanal 1: Big Buck Bunny (W3.org üzerinden)
+            const createChannel1Op = db
+              .get<ChannelModel>('channels')
+              .prepareCreate((record: any) => {
+                record.streamId = 9001;
+                record.name = 'Big Buck Bunny';
+                record.streamType = 'live';
+                record.streamIcon = 'https://upload.wikimedia.org/wikipedia/commons/c/c5/Big_buck_bunny_poster_big.jpg';
+                record.categoryId = '999';
+                record.categoryIds = JSON.stringify([999]);
+                record.directSource = 'https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/720/Big_Buck_Bunny_720_10s_1MB.mp4';
+                record.cachedAt = new Date();
+              });
+
+            // Sahte Kanal 2: Sintel Trailer (W3.org üzerinden)
+            const createChannel2Op = db
+              .get<ChannelModel>('channels')
+              .prepareCreate((record: any) => {
+                record.streamId = 9002;
+                record.name = 'Sintel Trailer';
+                record.streamType = 'live';
+                record.streamIcon = 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/Sintel_poster.jpg/320px-Sintel_poster.jpg';
+                record.categoryId = '999';
+                record.categoryIds = JSON.stringify([999]);
+                record.directSource = 'https://media.w3.org/2010/05/sintel/trailer_hd.mp4';
+                record.cachedAt = new Date();
+              });
+
+            // Sahte Kanal 3: View From A Blue Moon (Plyr.io üzerinden)
+            const createChannel3Op = db
+              .get<ChannelModel>('channels')
+              .prepareCreate((record: any) => {
+                record.streamId = 9003;
+                record.name = 'Blue Moon Trailer';
+                record.streamType = 'live';
+                record.streamIcon = 'https://cdn.plyr.io/static/demo/View_From_A_Blue_Moon_Trailer-HD.jpg';
+                record.categoryId = '999';
+                record.categoryIds = JSON.stringify([999]);
+                record.directSource = 'https://cdn.plyr.io/static/demo/View_From_A_Blue_Moon_Trailer-576p.mp4';
+                record.cachedAt = new Date();
+              });
+
+            await db.batch(
+              ...deleteOps,
+              createCategoryOp,
+              createChannel1Op,
+              createChannel2Op,
+              createChannel3Op,
+            );
+          });
+          console.log('✅ Demo verileri WatermelonDB\'ye yazıldı');
+        }
+
+        // 3. Ana sayfaya yönlendir
+        console.log('✅ Demo modu başarılı, ana sayfaya yönlendiriliyor...');
+        router.replace('/');
+      } catch (error: any) {
+        console.error('❌ Demo mod hatası:', error);
+        Alert.alert(t('common.error'), t('login.demoError'));
+      } finally {
+        setLoading(false);
+      }
+      return; // Gerçek API akışına devam etme
+    }
+    // === DEMO MOD SONU ===
+
+    // Normal giriş için tüm alanlar zorunlu
     if (!iptvName || !username || !password || !url) {
-      Alert.alert('Hata', 'Lütfen tüm alanları doldurun');
+      Alert.alert(t('common.error'), t('login.fillAllFields'));
       return;
     }
 
@@ -105,9 +241,9 @@ export default function LoginScreen() {
         await storageService.markFirstLoginCompleted();
       }
 
-      Alert.alert('Başarılı', 'Giriş yapıldı! Lütfen ana sayfadaki "Tüm Verileri Güncelle" butonuna basarak içerikleri indirin.', [
+      Alert.alert(t('common.success'), t('login.loginSuccess'), [
         {
-          text: 'Tamam',
+          text: t('common.ok'),
           onPress: () => router.replace('/'),
         },
       ]);
@@ -115,7 +251,7 @@ export default function LoginScreen() {
       console.log('✅ Login successful:', accountInfo);
     } catch (error: any) {
       console.error('❌ Login error:', error);
-      Alert.alert('Hata', error.message || 'Giriş başarısız. Lütfen bilgilerinizi kontrol edin.');
+      Alert.alert(t('common.error'), error.message || t('login.loginFailed'));
     } finally {
       setLoading(false);
     }
@@ -125,7 +261,7 @@ export default function LoginScreen() {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#6366f1" />
-        <Text style={styles.loadingText}>Yükleniyor...</Text>
+        <Text style={styles.loadingText}>{t('common.loading')}</Text>
       </View>
     );
   }
@@ -137,11 +273,11 @@ export default function LoginScreen() {
         <View style={styles.leftPanel}>
           <View style={styles.logoContainer}>
             <Image
-              source={require('../assets/images/splash.png')}
+              source={require('../assets/images/splashscreen_logo.png')}
               style={styles.logo}
               resizeMode="contain"
             />
-            <Text style={styles.slogan}>Sınırsız Eğlence</Text>
+            <Text style={styles.slogan}>{t('login.slogan')}</Text>
           </View>
         </View>
 
@@ -158,15 +294,32 @@ export default function LoginScreen() {
               bounces={false}
             >
               <View style={styles.formContainer}>
+                {/* Dil Seçici Butonu */}
+                <Pressable
+                  focusable={true}
+                  style={({ focused }) => [
+                    styles.languageButton,
+                    focused && {
+                      borderColor: '#00E5FF',
+                      borderWidth: 2,
+                      transform: [{ scale: 1.05 }],
+                    }
+                  ]}
+                  onPress={() => setLanguageModalVisible(true)}
+                >
+                  <Text style={styles.languageButtonText}>{getCurrentLanguageLabel()}</Text>
+                  <MaterialCommunityIcons name="chevron-down" size={18} color="#94a3b8" />
+                </Pressable>
+
                 <View style={styles.headerContainer}>
-                  <Text style={styles.welcomeTitle}>Giriş Yap</Text>
-                  <Text style={styles.welcomeSubtitle}>Hesabınıza erişmek için bilgilerinizi girin</Text>
+                  <Text style={styles.welcomeTitle}>{t('login.title')}</Text>
+                  <Text style={styles.welcomeSubtitle}>{t('login.subtitle')}</Text>
                 </View>
 
                 <View style={styles.inputGroup}>
                   <TextInput
                     style={styles.input}
-                    placeholder="IP TV İsmi (Örn: Ev TV)"
+                    placeholder={t('login.iptvName')}
                     placeholderTextColor="#64748b"
                     value={iptvName}
                     onChangeText={setIptvName}
@@ -177,7 +330,7 @@ export default function LoginScreen() {
                 <View style={styles.inputGroup}>
                   <TextInput
                     style={styles.input}
-                    placeholder="Kullanıcı Adı"
+                    placeholder={t('login.username')}
                     placeholderTextColor="#64748b"
                     value={username}
                     onChangeText={setUsername}
@@ -189,7 +342,7 @@ export default function LoginScreen() {
                 <View style={styles.inputGroup}>
                   <TextInput
                     style={styles.input}
-                    placeholder="Şifre"
+                    placeholder={t('login.password')}
                     placeholderTextColor="#64748b"
                     value={password}
                     onChangeText={setPassword}
@@ -202,7 +355,7 @@ export default function LoginScreen() {
                 <View style={styles.inputGroup}>
                   <TextInput
                     style={styles.input}
-                    placeholder="Sunucu Adresi (http://example.com:8080)"
+                    placeholder={t('login.serverUrl')}
                     placeholderTextColor="#64748b"
                     value={url}
                     onChangeText={setUrl}
@@ -230,7 +383,7 @@ export default function LoginScreen() {
                   {loading ? (
                     <ActivityIndicator color="#fff" />
                   ) : (
-                    <Text style={styles.loginButtonText}>Giriş Yap</Text>
+                    <Text style={styles.loginButtonText}>{t('login.loginButton')}</Text>
                   )}
                 </Pressable>
               </View>
@@ -238,6 +391,45 @@ export default function LoginScreen() {
           </KeyboardAvoidingView>
         </View>
       </View>
+
+      {/* Dil Seçici Modal */}
+      <Modal
+        visible={languageModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setLanguageModalVisible(false)}
+      >
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={() => setLanguageModalVisible(false)}
+        >
+          <View style={styles.languageModalContent}>
+            <Text style={styles.languageModalTitle}>{t('login.selectLanguage')}</Text>
+            {SUPPORTED_LANGUAGES.map((lang) => (
+              <Pressable
+                key={lang.code}
+                focusable={true}
+                style={({ focused }) => [
+                  styles.languageOption,
+                  i18n.language === lang.code && styles.languageOptionActive,
+                  focused && { borderColor: '#00E5FF', borderWidth: 2 },
+                ]}
+                onPress={() => handleLanguageChange(lang.code)}
+              >
+                <Text style={[
+                  styles.languageOptionText,
+                  i18n.language === lang.code && styles.languageOptionTextActive,
+                ]}>
+                  {lang.label}
+                </Text>
+                {i18n.language === lang.code && (
+                  <MaterialCommunityIcons name="check" size={20} color="#6366f1" />
+                )}
+              </Pressable>
+            ))}
+          </View>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -297,6 +489,24 @@ const styles = StyleSheet.create({
     maxWidth: 480,
     width: '100%',
     alignSelf: 'center',
+  },
+  // Dil Seçici Butonu
+  languageButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-end',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+  },
+  languageButtonText: {
+    color: '#94a3b8',
+    fontSize: 13,
+    marginRight: 4,
   },
   headerContainer: {
     marginBottom: 16, // Başlık boşluğu azaltıldı
@@ -358,5 +568,50 @@ const styles = StyleSheet.create({
     color: '#fff',
     marginTop: 16,
     fontSize: 16,
+  },
+  // Dil Modal Stilleri
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  languageModalContent: {
+    backgroundColor: '#1e293b',
+    borderRadius: 16,
+    padding: 20,
+    width: 300,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+  },
+  languageModalTitle: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  languageOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    marginBottom: 6,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  languageOptionActive: {
+    backgroundColor: 'rgba(99, 102, 241, 0.15)',
+    borderColor: 'rgba(99, 102, 241, 0.4)',
+  },
+  languageOptionText: {
+    color: '#94a3b8',
+    fontSize: 16,
+  },
+  languageOptionTextActive: {
+    color: '#fff',
+    fontWeight: '600',
   },
 });

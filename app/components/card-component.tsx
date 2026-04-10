@@ -27,7 +27,7 @@ const CardComponent = ({
   onUpdateBlur
 }: CardComponentProps) => {
   const rotateAnim = useRef(new Animated.Value(0)).current;
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const deviceType = getDeviceType(width);
 
   useEffect(() => {
@@ -50,12 +50,13 @@ const CardComponent = ({
     outputRange: ['0deg', '360deg'],
   });
 
-  // Responsive değerler
-  const titleFontSize = getResponsiveFontSize(width, deviceType === 'mobile' ? 24 : 28);
-  const descriptionFontSize = getResponsiveFontSize(width, deviceType === 'mobile' ? 16 : 18);
-  const iconSize = deviceType === 'mobile' ? 40 : 50;
-  const cardPadding = deviceType === 'mobile' ? 8 : 30;
-  const cardPaddingTop = deviceType === 'mobile' ? 50 : 80;
+  // Responsive değerler - ekran yüksekliğine orantılı
+  const titleFontSize = getResponsiveFontSize(width, deviceType === 'mobile' ? 18 : 24);
+  const descriptionFontSize = getResponsiveFontSize(width, deviceType === 'mobile' ? 13 : 16);
+  const iconSize = deviceType === 'mobile' ? 32 : Math.min(44, height * 0.08);
+  // Padding değerleri ekran yüksekliğine orantılı - taşma önlenir
+  const cardPadding = deviceType === 'mobile' ? 6 : Math.min(16, height * 0.025);
+  const cardPaddingTop = deviceType === 'mobile' ? 28 : Math.min(40, height * 0.06);
 
   return (
     <View style={[styles.cardContainer, { padding: cardPadding, paddingTop: cardPaddingTop }, style]}>
@@ -96,7 +97,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.2)',
     width: '100%',
+    flex: 1,
     position: 'relative',
+    justifyContent: 'center',
   },
   updateButton: {
     position: 'absolute',

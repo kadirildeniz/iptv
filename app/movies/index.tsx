@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { View, StyleSheet, Platform, ActivityIndicator, useWindowDimensions, TouchableOpacity, Text, Image, Modal, Pressable, ImageBackground } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { FlashList } from '@shopify/flash-list';
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useRouter, Redirect, useFocusEffect } from 'expo-router';
@@ -25,6 +26,7 @@ interface UICategory {
 }
 
 const Movies: React.FC = () => {
+  const { t } = useTranslation();
   const router = useRouter();
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -73,7 +75,7 @@ const Movies: React.FC = () => {
       await loadFavorites();
       await loadCategories();
     } catch (err) {
-      setError('Bir hata oluştu');
+      setError(t('moviesList.errorOccurred'));
     } finally {
       setLoading(false);
     }
@@ -96,14 +98,14 @@ const Movies: React.FC = () => {
 
       const formatted = Array.from(uniqueMap.values()).filter(c => c.id !== 'all' && c.id !== 'favorites');
       setCategories([
-        { id: 'all', name: '🎬 TÜM' },
-        { id: 'continue_watching', name: '⏯️ DEVAM ET' },
-        { id: 'favorites', name: '⭐ FAVORİLER' },
+        { id: 'all', name: t('moviesList.allMovies') },
+        { id: 'continue_watching', name: t('moviesList.continueWatching') },
+        { id: 'favorites', name: t('moviesList.favorites') },
         ...formatted,
       ]);
       setSelectedCategory('all');
     } catch (err) {
-      setError('Kategori hatası');
+      setError(t('moviesList.categoryError'));
     }
   };
 
@@ -229,7 +231,7 @@ const Movies: React.FC = () => {
                 onBlur={isTV ? () => setBackButtonFocused(false) : undefined}
               >
                 <Ionicons name="arrow-back" size={20} color="#fff" />
-                <Text style={styles.backText}>GERİ DÖN</Text>
+                <Text style={styles.backText}>{t('common.back')}</Text>
               </Pressable>
             </View>
 
@@ -252,16 +254,16 @@ const Movies: React.FC = () => {
               <TouchableOpacity onPress={() => setIsCategoryModalVisible(true)}>
                 <Ionicons name="menu" size={28} color="#fff" />
               </TouchableOpacity>
-              <Text style={styles.mobileTitle}>Filmler</Text>
+              <Text style={styles.mobileTitle}>{t('moviesList.title')}</Text>
             </View>
           )}
 
           <SearchHeader
-            title="Filmler"
+            title={t('moviesList.title')}
             onSearch={setSearchQuery}
-            placeholder="Film ara..."
+            placeholder={t('moviesList.searchPlaceholder')}
             itemCount={filteredMovies.length}
-            itemLabel="film"
+            itemLabel={t('moviesList.movie')}
           />
 
           {loadingMovies ? (

@@ -1,36 +1,39 @@
 {
   "expo": {
-    "name": "LUMO",
-    "slug": "lumo",
-    "version": "1.0.0",
+    "name": "Setbox",
+    "slug": "setbox",
+    "version": "1.0.2",
     "orientation": "landscape",
     "icon": "./assets/images/icon.png",
-    "scheme": "lumo",
+    "scheme": "setbox",
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.lumo.iptv"
+      "bundleIdentifier": "com.basecodestudio.setbox"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon.png",
         "backgroundColor": "#0033ab"
       },
-      "package": "com.lumo.iptv",
-      "versionCode": 1,
+      "package": "com.basecodestudio.setbox",
+      "versionCode": 6,
       "useNextNotificationsApi": true,
-      "edgeToEdgeEnabled": true,
       "softwareKeyboardLayoutMode": "pan",
       "isTV": true,
       "tvBanner": "./assets/images/tv_banner.png",
       "usesFeature": [
         {
           "name": "android.software.leanback",
-          "required": true
+          "required": false
         },
         {
           "name": "android.hardware.touchscreen",
+          "required": false
+        },
+        {
+          "name": "android.hardware.faketouch",
           "required": false
         }
       ],
@@ -61,7 +64,7 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash.png",
+          "image": "./assets/images/splashscreen_logo.png",
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#0033ab"
@@ -90,7 +93,7 @@
           "android": {
             "usesCleartextTraffic": true,
             "minSdkVersion": 24,
-            "compileSdkVersion": 35,
+            "compileSdkVersion": 36,
             "targetSdkVersion": 35,
             "buildToolsVersion": "34.0.0",
             "kotlinVersion": "2.0.21",
@@ -99,7 +102,8 @@
           }
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": false
@@ -107,7 +111,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "08e6b6b4-4456-4178-a656-6ce038b05a76"
+        "projectId": "c1d0953d-3ab6-4e07-b892-8004445f2dda"
       }
     }
   }

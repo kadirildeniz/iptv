@@ -28,6 +28,7 @@ console.log('📺 TV Tespit Sonucu:', {
 });
 
 export const getDeviceType = (width: number): DeviceType => {
+    if (Platform.isTV) return 'tv';
     if (width < BREAKPOINTS.mobile) return 'mobile';
     if (width < BREAKPOINTS.tablet) return 'tablet';
     return 'desktop';

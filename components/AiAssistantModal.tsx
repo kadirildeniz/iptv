@@ -14,26 +14,34 @@ import {
     Dimensions,
     Animated,
     Pressable,
+    Keyboard,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import { aiService, authService } from '@/services';
 import { fonts } from '@/theme/fonts';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 const AiAssistantModal = () => {
+    const { t } = useTranslation();
     const router = useRouter();
     const [visible, setVisible] = useState(false);
     const [inputText, setInputText] = useState('');
     const [loading, setLoading] = useState(false);
-    const [messages, setMessages] = useState<any[]>([
-        {
-            id: 'welcome',
-            type: 'ai',
-            text: 'Merhaba! Ben senin film ve dizi asistanınım. Bugün ne izlemek istersin? (Örn: "90lar aksiyon", "Gülmek istiyorum")',
-        },
-    ]);
+    const [messages, setMessages] = useState<any[]>([]);
+
+    // Component mount olduğunda mesajları çeviri ile başlat
+    useEffect(() => {
+        setMessages([
+            {
+                id: 'welcome',
+                type: 'ai',
+                text: t('aiAssistant.welcomeMessage'),
+            },
+        ]);
+    }, [t]);
     const [isLoggedIn, setIsLoggedIn] = useState(false);
     const [fabFocused, setFabFocused] = useState(false);
     const [inputFocused, setInputFocused] = useState(false);
@@ -69,6 +77,10 @@ const AiAssistantModal = () => {
     const handleSend = async () => {
         if (!inputText.trim()) return;
 
+        // Klavyeyi kapat
+        Keyboard.dismiss();
+        inputRef.current?.blur();
+
         const userMessage = {
             id: Date.now().toString(),
             type: 'user',
@@ -95,7 +107,7 @@ const AiAssistantModal = () => {
             const errorMessage = {
                 id: (Date.now() + 1).toString(),
                 type: 'ai',
-                text: 'Üzgünüm, bir hata oluştu. Lütfen tekrar dene.',
+                text: t('aiAssistant.errorMsg'),
             };
             setMessages((prev) => [...prev, errorMessage]);
         } finally {
@@ -118,7 +130,7 @@ const AiAssistantModal = () => {
 
             {item.movies && item.movies.length > 0 && (
                 <View style={styles.suggestionsContainer}>
-                    <Text style={styles.suggestionsTitle}>Önerilen Filmler</Text>
+                    <Text style={styles.suggestionsTitle}>{t('aiAssistant.suggestedMovies')}</Text>
                     <FlatList
                         data={item.movies}
                         renderItem={renderMovieCard}
@@ -132,55 +144,65 @@ const AiAssistantModal = () => {
         </View>
     );
 
-    const renderMovieCard = ({ item }: { item: any }) => (
-        <TouchableOpacity
-            style={styles.movieCard}
-            onPress={() => {
-                setVisible(false);
-                if (item.itemType === 'series') {
-                    router.push({
-                        pathname: '/series/[id]',
-                        params: { id: item.id.toString() }
-                    });
-                } else {
-                    router.push({
-                        pathname: '/movies/[id]',
-                        params: { id: item.id.toString() }
-                    });
-                }
-            }}
-        >
-            <Image
-                source={{ uri: item.poster || 'https://via.placeholder.com/150' }}
-                style={styles.moviePoster}
-                resizeMode="cover"
-            />
+    const [focusedCardId, setFocusedCardId] = useState<string | null>(null);
 
-            <View style={{
-                position: 'absolute',
-                top: 8,
-                right: 8,
-                backgroundColor: item.itemType === 'series' ? '#f97316' : '#3b82f6',
-                paddingHorizontal: 6,
-                paddingVertical: 2,
-                borderRadius: 4,
-            }}>
-                <Text style={{ color: '#fff', fontSize: 10, fontWeight: 'bold' }}>
-                    {item.itemType === 'series' ? 'DİZİ' : 'FİLM'}
-                </Text>
-            </View>
+    const renderMovieCard = ({ item }: { item: any }) => {
+        const isFocused = focusedCardId === item.id.toString();
 
-            <View style={styles.movieInfo}>
-                <Text style={styles.movieTitle} numberOfLines={2}>{item.title}</Text>
-                {item.rating && (
-                    <View style={styles.ratingContainer}>
-                        <Ionicons name="star" size={12} color="#facc15" />
-                        <Text style={styles.ratingText}>{item.rating}</Text>
-                    </View>
-                )}
-            </View>
-        </TouchableOpacity>
-    );
+        return (
+            <Pressable
+                style={[styles.movieCard, isTV && isFocused && styles.movieCardFocused]}
+                onPress={() => {
+                    setVisible(false);
+                    if (item.itemType === 'series') {
+                        router.push({
+                            pathname: '/series/[id]',
+                            params: { id: item.id.toString() }
+                        });
+                    } else {
+                        router.push({
+                            pathname: '/movies/[id]',
+                            params: { id: item.id.toString() }
+                        });
+                    }
+                }}
+                focusable={isTV}
+                isTVSelectable={isTV}
+                onFocus={isTV ? () => setFocusedCardId(item.id.toString()) : undefined}
+                onBlur={isTV ? () => setFocusedCardId(null) : undefined}
+            >
+                <Image
+                    source={{ uri: item.poster || 'https://via.placeholder.com/150' }}
+                    style={styles.moviePoster}
+                    resizeMode="cover"
+                />
+
+                <View style={{
+                    position: 'absolute',
+                    top: 8,
+                    right: 8,
+                    backgroundColor: item.itemType === 'series' ? '#f97316' : '#3b82f6',
+                    paddingHorizontal: 6,
+                    paddingVertical: 2,
+                    borderRadius: 4,
+                }}>
+                    <Text style={{ color: '#fff', fontSize: 10, fontWeight: 'bold' }}>
+                        {item.itemType === 'series' ? t('aiAssistant.serie') : t('aiAssistant.movie')}
+                    </Text>
+                </View>
+
+                <View style={styles.movieInfo}>
+                    <Text style={styles.movieTitle} numberOfLines={2}>{item.title}</Text>
+                    {item.rating && (
+                        <View style={styles.ratingContainer}>
+                            <Ionicons name="star" size={12} color="#facc15" />
+                            <Text style={styles.ratingText}>{item.rating}</Text>
+                        </View>
+                    )}
+                </View>
+            </Pressable>
+        );
+    };
 
     return (
         <>
@@ -197,7 +219,7 @@ const AiAssistantModal = () => {
                     onBlur={isTV ? () => setFabFocused(false) : undefined}
                 >
                     <Ionicons name="sparkles" size={24} color="#fff" />
-                    <Text style={styles.fabText}>Film & Dizi Bul</Text>
+                    <Text style={styles.fabText}>{t('aiAssistant.fabText')}</Text>
                 </Pressable>
             )}
 
@@ -222,7 +244,7 @@ const AiAssistantModal = () => {
                         <View style={styles.header}>
                             <View style={styles.headerTitleContainer}>
                                 <Ionicons name="sparkles" size={20} color="#3b82f6" />
-                                <Text style={styles.headerTitle}>Film & Dizi Asistanı</Text>
+                                <Text style={styles.headerTitle}>{t('aiAssistant.headerTitle')}</Text>
                             </View>
                             <TouchableOpacity onPress={() => setVisible(false)}>
                                 <Ionicons name="close" size={24} color="#64748b" />
@@ -241,7 +263,7 @@ const AiAssistantModal = () => {
                         {loading && (
                             <View style={styles.loadingContainer}>
                                 <ActivityIndicator size="small" color="#3b82f6" />
-                                <Text style={styles.loadingText}>Düşünüyor...</Text>
+                                <Text style={styles.loadingText}>{t('aiAssistant.thinking')}</Text>
                             </View>
                         )}
 
@@ -266,14 +288,14 @@ const AiAssistantModal = () => {
                                     <TextInput
                                         ref={inputRef}
                                         style={styles.input}
-                                        placeholder="Ne izlemek istersin?"
+                                        placeholder={t('aiAssistant.placeholder')}
                                         placeholderTextColor="#94a3b8"
                                         value={inputText}
                                         onChangeText={setInputText}
                                         onSubmitEditing={handleSend}
                                         showSoftInputOnFocus={true}
                                         autoCapitalize="none"
-                                        blurOnSubmit={false}
+                                        blurOnSubmit={true}
                                     />
                                 </Pressable>
                                 <Pressable
@@ -419,18 +441,26 @@ const styles = StyleSheet.create({
     },
     suggestionsList: {
         paddingHorizontal: 20,
-        gap: 12,
+        paddingVertical: 10,
+        gap: 10,
     },
     movieCard: {
-        width: 120,
+        width: 100,
         backgroundColor: '#1e293b',
-        borderRadius: 12,
-        overflow: 'hidden',
+        borderRadius: 10,
+        overflow: 'visible',
+        borderWidth: 2,
+        borderColor: 'transparent',
+    },
+    movieCardFocused: {
+        borderColor: '#14b8a6',
+        transform: [{ scale: 1.03 }],
     },
     moviePoster: {
         width: '100%',
-        height: 160,
+        height: 130,
         backgroundColor: '#0f172a',
+        borderRadius: 8,
     },
     movieInfo: {
         padding: 8,

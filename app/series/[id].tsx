@@ -22,8 +22,10 @@ import apiClient from '@/services/api/client';
 import { buildSeriesUrl } from '@/services/api/endpoints';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 
 const SeriesDetail: React.FC = () => {
+  const { t } = useTranslation();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const [series, setSeries] = useState<Series | null>(null);
@@ -379,7 +381,7 @@ const SeriesDetail: React.FC = () => {
       <SafeAreaView style={styles.container}>
         <View style={styles.center}>
           <ActivityIndicator size="large" color="#0ea5e9" />
-          <Text style={styles.loadingText}>Dizi yükleniyor...</Text>
+          <Text style={styles.loadingText}>{t('seriesDetails.loadingSeries')}</Text>
         </View>
       </SafeAreaView>
     );
@@ -393,9 +395,9 @@ const SeriesDetail: React.FC = () => {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.center}>
-          <Text style={styles.errorText}>❌ {error || 'Dizi bulunamadı'}</Text>
+          <Text style={styles.errorText}>❌ {error || t('seriesDetails.seriesNotFound')}</Text>
           <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-            <Text style={styles.backButtonText}>Geri Dön</Text>
+            <Text style={styles.backButtonText}>{t('player.goBack')}</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -535,8 +537,8 @@ const SeriesDetail: React.FC = () => {
                 <Text style={styles.heroTitle}>{series.name || baseInfo?.name}</Text>
               </View>
               <Text style={styles.heroMeta}>
-                {formatDate(baseInfo?.releaseDate || series.releaseDate)} · {seasons.length} Sezon ·{' '}
-                {genres[0] || 'Tür Bilinmiyor'}
+                {formatDate(baseInfo?.releaseDate || series.releaseDate)} · {seasons.length} {t('seriesDetails.season')} ·{' '}
+                {genres[0] || t('movieDetails.unknownGenre')}
               </Text>
 
               <View style={styles.heroActions}>
@@ -554,12 +556,12 @@ const SeriesDetail: React.FC = () => {
                     onPress={() => handleEpisodePress(episodes[0])}
                   >
                     <Ionicons name="play" size={18} color="#ffffff" style={{ marginRight: 8 }} />
-                    <Text style={styles.playButtonText}>İlk Bölümü İzle</Text>
+                    <Text style={styles.playButtonText}>{t('seriesDetails.watchFirstEpisode')}</Text>
                   </Pressable>
                 ) : seriesInfo && seriesInfo.seasons && seriesInfo.seasons.length === 0 ? (
                   <Pressable style={[styles.playButton, styles.playButtonDisabled]} disabled>
                     <Ionicons name="play" size={18} color="#ffffff" style={{ marginRight: 8 }} />
-                    <Text style={styles.playButtonText}>Bölüm Bulunamadı</Text>
+                    <Text style={styles.playButtonText}>{t('seriesDetails.episodeNotFound')}</Text>
                   </Pressable>
                 ) : loading || refreshing ? (
                   <View style={[styles.playButton, styles.playButtonDisabled, { justifyContent: 'center', alignItems: 'center' }]}>
@@ -588,14 +590,14 @@ const SeriesDetail: React.FC = () => {
 
           {description && (
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Özet</Text>
+              <Text style={styles.sectionTitle}>{t('movieDetails.summary')}</Text>
               <Text style={styles.sectionText}>{description}</Text>
             </View>
           )}
 
           {seasons.length > 0 && (
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Sezonlar</Text>
+              <Text style={styles.sectionTitle}>{t('seriesDetails.seasons')}</Text>
               <FlatList
                 data={seasons}
                 keyExtractor={(item) => item.season_number.toString()}
@@ -622,9 +624,9 @@ const SeriesDetail: React.FC = () => {
                         selectedSeason === item.season_number && styles.seasonChipTextSelected,
                       ]}
                     >
-                      Sezon {item.season_number}
+                      {t('seriesDetails.season')} {item.season_number}
                     </Text>
-                    <Text style={styles.seasonChipMeta}>{item.episode_count} Bölüm</Text>
+                    <Text style={styles.seasonChipMeta}>{t('seriesDetails.episodeCount', { count: item.episode_count })}</Text>
                   </Pressable>
                 )}
               />
@@ -633,7 +635,7 @@ const SeriesDetail: React.FC = () => {
 
           {selectedSeason !== null && episodes.length > 0 && (
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Sezon {selectedSeason} - Bölümler</Text>
+              <Text style={styles.sectionTitle}>{t('seriesDetails.season')} {selectedSeason} - {t('seriesDetails.episodes')}</Text>
               <View style={styles.episodesList}>
                 {episodes.map((episode, index) => (
                   <Pressable
@@ -670,7 +672,7 @@ const SeriesDetail: React.FC = () => {
                       )}
                       {!episode.streamUrl && (
                         <Text style={styles.episodeWarning}>
-                          Oynatılamıyor - Lütfen senkronize edin
+                          {t('seriesDetails.pleaseSync')}
                         </Text>
                       )}
                     </View>
@@ -688,7 +690,7 @@ const SeriesDetail: React.FC = () => {
           {(crew || castList.length > 0) && (
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>Oyuncular ve Ekip</Text>
+                <Text style={styles.sectionTitle}>{t('movieDetails.castAndCrew')}</Text>
                 {castList.length > 5 && (
                   <View style={styles.castSearch}>
                     <Ionicons name="search" size={16} color="#94a3b8" />
@@ -709,7 +711,7 @@ const SeriesDetail: React.FC = () => {
                       <Ionicons name="film-outline" size={22} color="#bfdbfe" />
                     </View>
                     <Text style={styles.castName}>{crew}</Text>
-                    <Text style={styles.castRole}>Yönetmen</Text>
+                    <Text style={styles.castRole}>{t('movieDetails.director')}</Text>
                   </View>
                 )}
                 {filteredCast.length > 0 ? (
