@@ -1,4 +1,4 @@
-package com.setbox.iptv
+package com.basecodestudio.setbox
 import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build

@@ -2,7 +2,7 @@
   "expo": {
     "name": "Setbox",
     "slug": "setbox",
-    "version": "1.0.2",
+    "version": "1.0.4",
     "orientation": "landscape",
     "icon": "./assets/images/icon.png",
     "scheme": "setbox",
@@ -18,35 +18,11 @@
         "backgroundColor": "#0033ab"
       },
       "package": "com.basecodestudio.setbox",
-      "versionCode": 6,
+      "versionCode": 8,
       "useNextNotificationsApi": true,
       "softwareKeyboardLayoutMode": "pan",
       "isTV": true,
       "tvBanner": "./assets/images/tv_banner.png",
-      "usesFeature": [
-        {
-          "name": "android.software.leanback",
-          "required": false
-        },
-        {
-          "name": "android.hardware.touchscreen",
-          "required": false
-        },
-        {
-          "name": "android.hardware.faketouch",
-          "required": false
-        }
-      ],
-      "intentFilters": [
-        {
-          "action": "android.intent.action.MAIN",
-          "category": [
-            "android.intent.category.LEANBACK_LAUNCHER",
-            "android.intent.category.LAUNCHER",
-            "android.intent.category.DEFAULT"
-          ]
-        }
-      ],
       "permissions": [
         "INTERNET",
         "ACCESS_NETWORK_STATE",
@@ -87,6 +63,7 @@
       "expo-sqlite",
       "react-native-video",
       "./plugins/withAudioBooster",
+      "./plugins/withAndroidTVFeatures",
       [
         "expo-build-properties",
         {

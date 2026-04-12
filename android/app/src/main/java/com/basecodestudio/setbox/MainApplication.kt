@@ -1,6 +1,6 @@
-package com.setbox.iptv
+package com.basecodestudio.setbox
 
-import com.setbox.iptv.AudioBoosterPackage
+import com.basecodestudio.setbox.AudioBoosterPackage
 import android.app.Application
 import android.content.res.Configuration
 

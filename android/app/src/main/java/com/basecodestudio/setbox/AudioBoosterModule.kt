@@ -1,4 +1,4 @@
-package com.setbox.iptv
+package com.basecodestudio.setbox
 
 import android.media.audiofx.LoudnessEnhancer
 import android.util.Log

@@ -1,4 +1,4 @@
-package com.setbox.iptv
+package com.basecodestudio.setbox
 
 import com.facebook.react.ReactPackage
 import com.facebook.react.bridge.NativeModule
