@@ -9,7 +9,9 @@
       ]
     },
     "experimentalDecorators": true,
-    "emitDecoratorMetadata": true
+    "emitDecoratorMetadata": true,
+    "strictPropertyInitialization": false,
+    "useDefineForClassFields": false
   },
   "include": [
     "**/*.ts",

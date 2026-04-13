@@ -2,7 +2,7 @@
   "expo": {
     "name": "Setbox",
     "slug": "setbox",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "orientation": "landscape",
     "icon": "./assets/images/icon.png",
     "scheme": "setbox",
@@ -18,7 +18,7 @@
         "backgroundColor": "#0033ab"
       },
       "package": "com.basecodestudio.setbox",
-      "versionCode": 8,
+      "versionCode": 12,
       "useNextNotificationsApi": true,
       "softwareKeyboardLayoutMode": "pan",
       "isTV": true,
@@ -63,7 +63,12 @@
       "expo-sqlite",
       "react-native-video",
       "./plugins/withAudioBooster",
-      "./plugins/withAndroidTVFeatures",
+      [
+        "./plugins/withAndroidTVFeatures",
+        {
+          "tvBanner": "./assets/images/tv_banner.png"
+        }
+      ],
       [
         "expo-build-properties",
         {
@@ -80,7 +85,8 @@
         }
       ],
       "expo-secure-store",
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-localization"
     ],
     "experiments": {
       "typedRoutes": false

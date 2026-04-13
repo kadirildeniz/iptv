@@ -1,9 +1,8 @@
-// index.ts – %100 çalışan son hali (2025 Expo + WatermelonDB 0.28)
-
+// index.ts – Web ve Mobil Uyumlu Hibrit Hal
 import { Database } from '@nozbe/watermelondb';
-import SQLiteAdapter from '@nozbe/watermelondb/adapters/sqlite';
-import { schema } from './schema';
 import { schemaMigrations, addColumns, createTable } from '@nozbe/watermelondb/Schema/migrations';
+import { createAdapter } from './dbAdapter'; // SİHİRLİ İMPORT (Uzantı yok!)
+
 import Favorite from './models/Favorite';
 import WatchHistory from './models/WatchHistory';
 import ContinueWatching from './models/ContinueWatching';
@@ -92,15 +91,8 @@ try {
     ],
   });
 
-  const adapter = new SQLiteAdapter({
-    schema,
-    migrations,
-    dbName: 'iptv_db',
-    jsi: false,
-    onSetUpError: (error) => {
-      console.error('❌ Database setup error:', error);
-    },
-  });
+  // Mobil cihazsa SQLite, Web ise LokiJS otomatik olarak seçilip gelecek!
+  const adapter = createAdapter(migrations);
 
   database = new Database({
     adapter,
@@ -119,7 +111,7 @@ try {
     ],
   });
 
-  console.log('✅ WatermelonDB başarıyla başlatıldı');
+  console.log('✅ WatermelonDB başarıyla başlatıldı (Hibrit Mod)');
 } catch (error) {
   console.error('❌ Database initialization error:', error);
 }

@@ -241,14 +241,15 @@ export default function LoginScreen() {
         await storageService.markFirstLoginCompleted();
       }
 
-      Alert.alert(t('common.success'), t('login.loginSuccess'), [
-        {
-          text: t('common.ok'),
-          onPress: () => router.replace('/'),
-        },
-      ]);
+      //Alert.alert(t('common.success'), t('login.loginSuccess'), [
+      //  {
+      //    text: t('common.ok'),
+      //    onPress: () => router.replace('/'),
+      //  },
+      //]);
 
       console.log('✅ Login successful:', accountInfo);
+      router.replace('/');
     } catch (error: any) {
       console.error('❌ Login error:', error);
       Alert.alert(t('common.error'), error.message || t('login.loginFailed'));

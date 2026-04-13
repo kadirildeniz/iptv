@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
+import { Platform } from 'react-native'; // 👈 SİHİRLİ IMPORT EKLENDİ
 
 const KEYS = {
   SETTINGS: 'settings',
@@ -73,8 +74,10 @@ class StorageService {
     return await this.getItem(KEYS.SETTINGS);
   }
 
+  // ==================== CREDENTIALS (HİBRİT YAPILANDIRMA) ====================
+
   /**
-   * Credentials kaydet (Güvenli depolamaya)
+   * Credentials kaydet (Mobil için Güvenli, Web için Normal depolama)
    */
   async saveCredentials(credentials: {
     host: string;
@@ -85,9 +88,17 @@ class StorageService {
     protocol?: 'http' | 'https';
   }): Promise<void> {
     try {
-      // SecureStore ile güvenli depolama
-      await SecureStore.setItemAsync(KEYS.CREDENTIALS, JSON.stringify(credentials));
-      console.log('✅ Credentials saved to secure storage');
+      const jsonValue = JSON.stringify(credentials);
+
+      if (Platform.OS === 'web') {
+        // Web (Tarayıcı) için standart AsyncStorage
+        await AsyncStorage.setItem(KEYS.CREDENTIALS, jsonValue);
+        console.log('✅ Credentials saved to AsyncStorage (Web Mode)');
+      } else {
+        // Mobil cihazlar için donanımsal SecureStore
+        await SecureStore.setItemAsync(KEYS.CREDENTIALS, jsonValue);
+        console.log('✅ Credentials saved to secure storage (Native Mode)');
+      }
     } catch (error) {
       console.error('❌ Save credentials error:', error);
       throw error;
@@ -95,7 +106,7 @@ class StorageService {
   }
 
   /**
-   * Credentials getir (Güvenli depolamadan)
+   * Credentials getir (Platforma Göre)
    */
   async getCredentials(): Promise<{
     host: string;
@@ -106,15 +117,20 @@ class StorageService {
     protocol?: 'http' | 'https';
   } | null> {
     try {
-      // SecureStore'dan oku
-      const stored = await SecureStore.getItemAsync(KEYS.CREDENTIALS);
+      let stored: string | null = null;
+
+      if (Platform.OS === 'web') {
+        stored = await AsyncStorage.getItem(KEYS.CREDENTIALS);
+      } else {
+        stored = await SecureStore.getItemAsync(KEYS.CREDENTIALS);
+      }
 
       if (stored) {
         const credentials = JSON.parse(stored);
-        console.log('✅ Credentials loaded from secure storage');
+        console.log(`✅ Credentials loaded (${Platform.OS === 'web' ? 'Web' : 'Native'})`);
         return credentials;
       } else {
-        console.log('ℹ️ No credentials found in secure storage');
+        console.log('ℹ️ No credentials found in storage');
         return null;
       }
     } catch (error) {
@@ -124,17 +140,23 @@ class StorageService {
   }
 
   /**
-   * Credentials temizle (Güvenli depolamadan)
+   * Credentials temizle (Çıkış Yap / Logout)
    */
   async clearCredentials(): Promise<void> {
     try {
-      await SecureStore.deleteItemAsync(KEYS.CREDENTIALS);
-      console.log('✅ Credentials cleared from secure storage');
+      if (Platform.OS === 'web') {
+        await AsyncStorage.removeItem(KEYS.CREDENTIALS);
+      } else {
+        await SecureStore.deleteItemAsync(KEYS.CREDENTIALS);
+      }
+      console.log('✅ Credentials cleared from storage');
     } catch (error) {
       console.error('❌ Clear credentials error:', error);
       throw error;
     }
   }
+
+  // =========================================================================
 
   /**
    * İlk giriş tamamlandı mı kontrol et
@@ -174,6 +196,7 @@ class StorageService {
       throw error;
     }
   }
+
   /**
    * Ses ayarlarını getir (dil tercihi dahil)
    */
@@ -268,14 +291,21 @@ class StorageService {
   }
 
   /**
-   * SecureStore verilerini konsola yazdır
+   * SecureStore verilerini konsola yazdır (Web uyumlu hale getirildi)
    */
   async debugSecureStore(): Promise<void> {
     try {
       console.log('\n==================== SECURE STORE DEBUG ====================');
-      const credentials = await SecureStore.getItemAsync(KEYS.CREDENTIALS);
-      if (credentials) {
-        const parsed = JSON.parse(credentials);
+
+      let credentialsString: string | null = null;
+      if (Platform.OS === 'web') {
+        credentialsString = await AsyncStorage.getItem(KEYS.CREDENTIALS);
+      } else {
+        credentialsString = await SecureStore.getItemAsync(KEYS.CREDENTIALS);
+      }
+
+      if (credentialsString) {
+        const parsed = JSON.parse(credentialsString);
         console.log('🔐 Credentials:');
         console.log({
           host: parsed.host,
@@ -302,4 +332,3 @@ class StorageService {
 }
 
 export default new StorageService();
-

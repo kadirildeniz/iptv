@@ -157,7 +157,7 @@ class AiService {
             console.warn('⚠️ Groq API Key tanımlanmamış. AI özellikleri devre dışı.');
             return;
         }
-        this.groq = new Groq({ apiKey: GROQ_API_KEY });
+        this.groq = new Groq({ apiKey: GROQ_API_KEY, dangerouslyAllowBrowser: true });
         this.isInitialized = true;
         console.log('✅ Groq AI initialized');
     }

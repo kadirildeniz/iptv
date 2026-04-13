@@ -679,12 +679,7 @@ const PlayerScreen: React.FC = () => {
           isTVSelectable={true}
           focusable={true}
           hasTVPreferredFocus={true}
-        >
-          <View style={styles.tvFocusHint}>
-            <Ionicons name="play-circle-outline" size={60} color="rgba(255,255,255,0.3)" />
-            <Text style={styles.tvFocusHintText}>Kontroller için OK tuşuna basın</Text>
-          </View>
-        </Pressable>
+        />
       )}
 
       {/* Controls Overlay */}
@@ -978,8 +973,6 @@ const styles = StyleSheet.create({
   gestureFeedback: { position: 'absolute', top: '50%', left: '50%', transform: [{ translateX: -50 }, { translateY: -50 }], backgroundColor: 'rgba(0,0,0,0.7)', padding: 20, borderRadius: 16, alignItems: 'center', justifyContent: 'center', zIndex: 10 },
   gestureText: { color: '#fff', fontSize: 18, fontFamily: fonts.bold, marginTop: 8 },
   tvFocusLayer: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center', backgroundColor: 'transparent' },
-  tvFocusHint: { alignItems: 'center', opacity: 0.5 },
-  tvFocusHintText: { color: 'rgba(255,255,255,0.5)', fontSize: 14, fontFamily: fonts.regular, marginTop: 8 },
   // Slider için stiller
   modalSliderItem: { paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: 'rgba(255, 255, 255, 0.1)' },
   modalSliderHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },

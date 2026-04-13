@@ -1,90 +1,93 @@
 const { withAndroidManifest } = require('@expo/config-plugins');
+const { withAndroidAssets } = require('./withAndroidAssets');
+const path = require('path');
 
-const withAndroidTVFeatures = (config) => {
-  return withAndroidManifest(config, (config) => {
-    const androidManifest = config.modResults;
-    const manifest = androidManifest.manifest;
+/**
+ * Android TV desteği için gereken tüm manifest ve asset işlemlerini yönetir.
+ * @param {object} config
+ * @param {{ tvBanner: string }} options
+ */
+const withAndroidTVFeatures = (config, options = {}) => {
+  const { tvBanner } = options;
+
+  if (!tvBanner) {
+    throw new Error('[withAndroidTVFeatures] "tvBanner" seçeneği zorunludur. app.json içinde belirtin.');
+  }
+
+  const bannerFileName = path.basename(tvBanner, path.extname(tvBanner)); // → "tv_banner"
+
+  // 1. Asset'i drawable'a kopyala
+  config = withAndroidAssets(config, [
+    {
+      src: tvBanner,
+      destDir: 'drawable',
+      destFileName: `${bannerFileName}.png`,
+    },
+  ]);
+
+  // 2. Manifest düzenlemelerini uygula
+  config = withAndroidManifest(config, (config) => {
+    const manifest = config.modResults.manifest;
     const application = manifest.application[0];
 
-    // tools namespace ekleniyor
-    if (!manifest.$['xmlns:tools']) {
-      manifest.$['xmlns:tools'] = 'http://schemas.android.com/tools';
-    }
+    // Tools namespace
+    manifest.$['xmlns:tools'] ??= 'http://schemas.android.com/tools';
 
-    // uses-features
-    if (!manifest['uses-feature']) {
-      manifest['uses-feature'] = [];
-    }
+    // TV için zorunlu feature tanımları
+    manifest['uses-feature'] ??= [];
 
-    const featuresToAdd = [
-      {
-        '$': {
-          'android:name': 'android.hardware.touchscreen',
-          'android:required': 'false',
-          'tools:replace': 'android:required'
-        },
-      },
-      {
-        '$': {
-          'android:name': 'android.hardware.faketouch',
-          'android:required': 'false',
-          'tools:replace': 'android:required'
-        },
-      },
-      {
-        '$': {
-          'android:name': 'android.software.leanback',
-          'android:required': 'false',
-          'tools:replace': 'android:required'
-        },
-      },
+    const tvFeatures = [
+      'android.hardware.touchscreen',
+      'android.hardware.faketouch',
+      'android.software.leanback',
     ];
 
-    featuresToAdd.forEach((feature) => {
+    tvFeatures.forEach((featureName) => {
       manifest['uses-feature'] = manifest['uses-feature'].filter(
-        (f) => f.$['android:name'] !== feature.$['android:name']
+        (f) => f.$['android:name'] !== featureName
       );
-      manifest['uses-feature'].push(feature);
+      manifest['uses-feature'].push({
+        $: {
+          'android:name': featureName,
+          'android:required': 'false',
+          'tools:replace': 'android:required',
+        },
+      });
     });
 
-    // 1. Android TV Banner (Afiş) eklenmesi
-    application.$['android:banner'] = '@drawable/tv_banner';
+    // Banner referansı
+    application.$['android:banner'] = `@drawable/${bannerFileName}`;
 
-    // 2. Main Activity içindeki hatalı Intent Filter temizliği ve doğru enjeksiyon
-    const activities = application.activity || [];
-    const mainActivity = activities.find(
-      (act) => act.$['android:name'] === '.MainActivity'
-    ) || activities[0];
+    // MainActivity intent-filter: hem mobile hem TV launcher
+    const activities = application.activity ?? [];
+    const mainActivity =
+      activities.find((a) => a.$['android:name'] === '.MainActivity') ?? activities[0];
 
-    if (mainActivity) {
-      // İçerisinde MAIN action bulunduran hatalı intent filterları (bozuk Leanback vb.) tamamen siliyoruz
-      if (mainActivity['intent-filter']) {
-        mainActivity['intent-filter'] = mainActivity['intent-filter'].filter(
-          (filter) => {
-            const hasMainAction = filter.action && filter.action.some(
-              (a) => a.$['android:name'] === 'android.intent.action.MAIN'
-            );
-            return !hasMainAction;
-          }
-        );
-      } else {
-        mainActivity['intent-filter'] = [];
-      }
-
-      // Uygulamanın TV'de Launcher'da görünmesi için "Temiz" MAIN Intent-Filter'ını ekliyoruz
-      mainActivity['intent-filter'].push({
-        action: [
-          { $: { 'android:name': 'android.intent.action.MAIN' } }
-        ],
-        category: [
-          { $: { 'android:name': 'android.intent.category.LAUNCHER' } },
-          { $: { 'android:name': 'android.intent.category.LEANBACK_LAUNCHER' } }
-        ]
-      });
+    if (!mainActivity) {
+      throw new Error('[withAndroidTV] MainActivity bulunamadı.');
     }
+
+    // Mevcut MAIN intent'leri temizle
+    mainActivity['intent-filter'] = (mainActivity['intent-filter'] ?? []).filter((filter) => {
+      const hasMain = filter.action?.some(
+        (a) => a.$['android:name'] === 'android.intent.action.MAIN'
+      );
+      return !hasMain;
+    });
+
+    // Birleşik launcher intent ekle (mobile + TV)
+    mainActivity['intent-filter'].push({
+      action: [{ $: { 'android:name': 'android.intent.action.MAIN' } }],
+      category: [
+        { $: { 'android:name': 'android.intent.category.LAUNCHER' } },
+        { $: { 'android:name': 'android.intent.category.LEANBACK_LAUNCHER' } },
+      ],
+    });
 
     return config;
   });
+
+  return config;
 };
 
 module.exports = withAndroidTVFeatures;
