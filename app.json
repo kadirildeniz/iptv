@@ -2,7 +2,7 @@
   "expo": {
     "name": "Setbox",
     "slug": "setbox",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "orientation": "landscape",
     "icon": "./assets/images/icon.png",
     "scheme": "setbox",
@@ -14,11 +14,11 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/icon.png",
+        "foregroundImage": "./assets/images/tv_icon.png",
         "backgroundColor": "#0033ab"
       },
       "package": "com.basecodestudio.setbox",
-      "versionCode": 12,
+      "versionCode": 17,
       "useNextNotificationsApi": true,
       "softwareKeyboardLayoutMode": "pan",
       "isTV": true,
